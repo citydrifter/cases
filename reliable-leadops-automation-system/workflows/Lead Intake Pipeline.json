@@ -42,8 +42,6 @@
       "alwaysOutputData": true,
       "credentials": {
         "postgres": {
-          "id": "MYfGjrv9lOppYc1k",
-          "name": "Postgres account 2"
         }
       }
     },
@@ -98,8 +96,6 @@
       "alwaysOutputData": true,
       "credentials": {
         "postgres": {
-          "id": "MYfGjrv9lOppYc1k",
-          "name": "Postgres account 2"
         }
       }
     },
@@ -153,8 +149,6 @@
       "name": "duplicate_event_check log",
       "credentials": {
         "postgres": {
-          "id": "MYfGjrv9lOppYc1k",
-          "name": "Postgres account 2"
         }
       }
     },
@@ -174,8 +168,6 @@
       "name": "duplicate_lead log",
       "credentials": {
         "postgres": {
-          "id": "MYfGjrv9lOppYc1k",
-          "name": "Postgres account 2"
         }
       }
     },
@@ -195,8 +187,6 @@
       "name": "crm lead creation failed",
       "credentials": {
         "postgres": {
-          "id": "MYfGjrv9lOppYc1k",
-          "name": "Postgres account 2"
         }
       }
     },
@@ -216,8 +206,6 @@
       "name": "Add lead to leads table",
       "credentials": {
         "postgres": {
-          "id": "MYfGjrv9lOppYc1k",
-          "name": "Postgres account 2"
         }
       }
     },
@@ -237,8 +225,6 @@
       "name": "Add event to raw_events table",
       "credentials": {
         "postgres": {
-          "id": "MYfGjrv9lOppYc1k",
-          "name": "Postgres account 2"
         }
       }
     },
@@ -280,8 +266,6 @@
       "webhookId": "6bcd1407-fdc4-47d6-910f-ee1961fdb3f9",
       "credentials": {
         "telegramApi": {
-          "id": "aKCOpGPcXblCpT1d",
-          "name": "Telegram account"
         }
       }
     },
@@ -301,8 +285,6 @@
       "name": "lead_lookup_by_email log",
       "credentials": {
         "postgres": {
-          "id": "MYfGjrv9lOppYc1k",
-          "name": "Postgres account 2"
         }
       }
     },
@@ -322,8 +304,6 @@
       "name": "success_notification log",
       "credentials": {
         "postgres": {
-          "id": "MYfGjrv9lOppYc1k",
-          "name": "Postgres account 2"
         }
       }
     },
@@ -379,8 +359,6 @@
       "webhookId": "5d99f169-bc2c-4108-aed9-d9855f3a2056",
       "credentials": {
         "telegramApi": {
-          "id": "aKCOpGPcXblCpT1d",
-          "name": "Telegram account"
         }
       }
     },
@@ -467,8 +445,6 @@
       "name": "Invalid payload",
       "credentials": {
         "postgres": {
-          "id": "MYfGjrv9lOppYc1k",
-          "name": "Postgres account 2"
         }
       }
     },
@@ -488,8 +464,6 @@
       "name": "invalid payload log",
       "credentials": {
         "postgres": {
-          "id": "MYfGjrv9lOppYc1k",
-          "name": "Postgres account 2"
         }
       }
     },
@@ -527,8 +501,6 @@
       "webhookId": "71aa08d0-8e6a-4e77-b1a5-647d5cb2cfc4",
       "credentials": {
         "telegramApi": {
-          "id": "aKCOpGPcXblCpT1d",
-          "name": "Telegram account"
         }
       }
     }
