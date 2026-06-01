@@ -1,0 +1,57 @@
+Project reliable_leadops_automation_system {
+  database_type: "PostgreSQL"
+  Note: "Reliable lead intake, retry, manual review, and monitoring system built with n8n and PostgreSQL."
+}
+
+Table raw_events {
+  internal_id int [pk, increment]
+
+  external_id text [unique, not null, note: "External event id, usually form submission_id"]
+  payload jsonb [not null, note: "Original raw webhook/form payload"]
+  event_source text [not null, note: "Source identifier, e.g. contact_form_homepage or pricing_form"]
+
+  processing_status text [not null, default: "processing", note: "processing, completed, failed, retrying, manual_review, duplicate_lead"]
+  error_message text
+
+  retry_count int [default: 0]
+  last_retry_at timestamp
+  next_retry_at timestamp
+  manual_review_reason text
+
+  created_at timestamp [default: `now()`]
+  updated_at timestamp [default: `now()`]
+  processed_at timestamp
+}
+
+Table leads {
+  internal_id int [pk, increment]
+
+  external_id text [unique, note: "External CRM lead/contact id"]
+  event_id int [not null, ref: > raw_events.internal_id]
+
+  lead_name text
+  lead_email text [unique, not null]
+  lead_phone text
+  lead_source text [note: "Marketing source, usually utm_source"]
+
+  status text [not null, default: "new"]
+
+  created_at timestamp [default: `now()`]
+  updated_at timestamp [default: `now()`]
+}
+
+Table workflow_logs {
+  internal_id int [pk, increment]
+
+  event_id int [ref: > raw_events.internal_id]
+  lead_id int [ref: > leads.internal_id]
+
+  step_name text [not null, note: "Example: raw_event_inserted, crm_lead_created, retry_success"]
+  status text [not null, note: "started, success, failed, skipped"]
+  wf_message text
+
+  created_at timestamp [default: `now()`]
+}
+
+Ref: raw_events.internal_id < workflow_logs.event_id
+Ref: leads.internal_id < workflow_logs.lead_id

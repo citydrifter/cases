@@ -1,0 +1,182 @@
+[
+  {
+    "submission_id": "subm_20260529_00001",
+    "form_id": "contact_form_homepage",
+    "form_name": "Contact Form",
+    "submitted_at": "2026-05-29T09:15:00Z",
+    "page_url": "https://example.com/",
+    "referrer": "https://google.com",
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+    "ip_address": "203.0.113.11",
+    "fields": {
+      "name": "Anna Smith",
+      "email": "anna.smith@example.com",
+      "phone": "+31 6 12345678",
+      "company": "Example BV",
+      "message": "Hi, I would like to book a consultation.",
+      "budget": "3000-5000",
+      "preferred_contact_method": "email"
+    },
+    "utm": {
+      "utm_source": "google",
+      "utm_medium": "cpc",
+      "utm_campaign": "automation_services",
+      "utm_content": "homepage_cta",
+      "utm_term": "n8n consultant"
+    },
+    "consent": {
+      "privacy_policy": true,
+      "marketing_emails": false
+    }
+  },
+  {
+    "submission_id": "subm_20260529_00002",
+    "form_id": "contact_form_homepage",
+    "form_name": "Contact Form",
+    "submitted_at": "2026-05-29T10:05:00Z",
+    "page_url": "https://example.com/services",
+    "referrer": "https://linkedin.com",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    "ip_address": "203.0.113.12",
+    "fields": {
+      "name": "Michael Brown",
+      "email": "michael.brown@example.com",
+      "phone": "+1 415 555 0198",
+      "company": "Brown Consulting LLC",
+      "message": "We need help automating our client onboarding process.",
+      "budget": "5000-10000",
+      "preferred_contact_method": "phone"
+    },
+    "utm": {
+      "utm_source": "linkedin",
+      "utm_medium": "paid_social",
+      "utm_campaign": "b2b_leadgen",
+      "utm_content": "case_study_ad",
+      "utm_term": "workflow automation"
+    },
+    "consent": {
+      "privacy_policy": true,
+      "marketing_emails": true
+    }
+  },
+  {
+    "submission_id": "subm_20260529_00003",
+    "form_id": "pricing_form",
+    "form_name": "Pricing Request Form",
+    "submitted_at": "2026-05-29T11:30:00Z",
+    "page_url": "https://example.com/pricing",
+    "referrer": "https://example.com/blog/sql-for-automation",
+    "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)",
+    "ip_address": "203.0.113.13",
+    "fields": {
+      "name": "Sofia Garcia",
+      "email": "sofia.garcia@example.com",
+      "phone": "+34 600 123 456",
+      "company": "Garcia Studio",
+      "message": "I found your blog post and want to discuss an automation project.",
+      "budget": "1000-3000",
+      "preferred_contact_method": "email"
+    },
+    "utm": {
+      "utm_source": "organic",
+      "utm_medium": "blog",
+      "utm_campaign": "content_marketing",
+      "utm_content": "sql_for_automation_article",
+      "utm_term": ""
+    },
+    "consent": {
+      "privacy_policy": true,
+      "marketing_emails": false
+    }
+  },
+  {
+    "submission_id": "subm_20260529_00004",
+    "form_id": "contact_form_homepage",
+    "form_name": "Contact Form",
+    "submitted_at": "2026-05-29T12:45:00Z",
+    "page_url": "https://example.com/",
+    "referrer": "https://twitter.com",
+    "user_agent": "Mozilla/5.0 (X11; Linux x86_64)",
+    "ip_address": "203.0.113.14",
+    "fields": {
+      "name": "David Johnson",
+      "email": "david.johnson@example.com",
+      "phone": "",
+      "company": "Johnson Labs",
+      "message": "Can you help us connect Airtable, Slack, and HubSpot?",
+      "budget": "3000-5000",
+      "preferred_contact_method": "email"
+    },
+    "utm": {
+      "utm_source": "twitter",
+      "utm_medium": "social",
+      "utm_campaign": "automation_threads",
+      "utm_content": "thread_cta",
+      "utm_term": "airtable slack hubspot"
+    },
+    "consent": {
+      "privacy_policy": true,
+      "marketing_emails": true
+    }
+  },
+  {
+    "submission_id": "subm_20260529_00005",
+    "form_id": "contact_form_homepage",
+    "form_name": "Contact Form",
+    "submitted_at": "2026-05-29T13:20:00Z",
+    "page_url": "https://example.com/",
+    "referrer": "https://facebook.com",
+    "user_agent": "Mozilla/5.0 (Android 14; Mobile)",
+    "ip_address": "203.0.113.15",
+    "fields": {
+      "name": "Emma Wilson",
+      "email": "",
+      "phone": "+44 7700 900123",
+      "company": "Wilson Digital",
+      "message": "I want to automate lead routing.",
+      "budget": "5000-10000",
+      "preferred_contact_method": "phone"
+    },
+    "utm": {
+      "utm_source": "facebook",
+      "utm_medium": "paid_social",
+      "utm_campaign": "lead_routing_campaign",
+      "utm_content": "form_ad",
+      "utm_term": "lead automation"
+    },
+    "consent": {
+      "privacy_policy": true,
+      "marketing_emails": false
+    }
+  },
+  {
+    "submission_id": "subm_20260529_00008",
+    "form_id": "contact_form_homepage",
+    "form_name": "Contact Form",
+    "submitted_at": "2026-05-29T16:40:00Z",
+    "page_url": "https://example.com/",
+    "referrer": "https://youtube.com",
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+    "ip_address": "203.0.113.18",
+    "fields": {
+      "name": "Noah Bennett",
+      "email": "noah.bennett@example.com",
+      "phone": "+44 7700 900456",
+      "company": "Bennett Systems",
+      "message": "We need a reliable workflow with retries and manual review for CRM lead processing.",
+      "budget": "5000-10000",
+      "preferred_contact_method": "email"
+    },
+    "utm": {
+      "utm_source": "youtube",
+      "utm_medium": "video",
+      "utm_campaign": "workflow_reliability_series",
+      "utm_content": "retry_pipeline_demo",
+      "utm_term": "n8n retry automation"
+    },
+    "consent": {
+      "privacy_policy": true,
+      "marketing_emails": true
+    }
+  }
+]
