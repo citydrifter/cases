@@ -41,8 +41,6 @@
       "name": "Mark event as retrying",
       "credentials": {
         "postgres": {
-          "id": "MYfGjrv9lOppYc1k",
-          "name": "Postgres account 2"
         }
       }
     },
@@ -97,8 +95,6 @@
       "alwaysOutputData": true,
       "credentials": {
         "postgres": {
-          "id": "MYfGjrv9lOppYc1k",
-          "name": "Postgres account 2"
         }
       }
     },
@@ -172,8 +168,6 @@
       "alwaysOutputData": true,
       "credentials": {
         "postgres": {
-          "id": "MYfGjrv9lOppYc1k",
-          "name": "Postgres account 2"
         }
       }
     },
@@ -227,8 +221,6 @@
       "name": "Event marked as completed",
       "credentials": {
         "postgres": {
-          "id": "MYfGjrv9lOppYc1k",
-          "name": "Postgres account 2"
         }
       }
     },
@@ -294,8 +286,6 @@
       "name": "Invalid payload",
       "credentials": {
         "postgres": {
-          "id": "MYfGjrv9lOppYc1k",
-          "name": "Postgres account 2"
         }
       }
     },
@@ -315,8 +305,6 @@
       "name": "Retry failed",
       "credentials": {
         "postgres": {
-          "id": "MYfGjrv9lOppYc1k",
-          "name": "Postgres account 2"
         }
       }
     },
@@ -336,8 +324,6 @@
       "name": "Retry success",
       "credentials": {
         "postgres": {
-          "id": "MYfGjrv9lOppYc1k",
-          "name": "Postgres account 2"
         }
       }
     },
@@ -357,8 +343,6 @@
       "name": "manual review log",
       "credentials": {
         "postgres": {
-          "id": "MYfGjrv9lOppYc1k",
-          "name": "Postgres account 2"
         }
       }
     },
@@ -398,8 +382,6 @@
       "webhookId": "b8b16afd-48d6-4329-97be-e183080d3cd9",
       "credentials": {
         "telegramApi": {
-          "id": "aKCOpGPcXblCpT1d",
-          "name": "Telegram account"
         }
       }
     },
@@ -439,8 +421,6 @@
       "webhookId": "b8b16afd-48d6-4329-97be-e183080d3cd9",
       "credentials": {
         "telegramApi": {
-          "id": "aKCOpGPcXblCpT1d",
-          "name": "Telegram account"
         }
       }
     },
@@ -460,8 +440,6 @@
       "name": "retries_notification log",
       "credentials": {
         "postgres": {
-          "id": "MYfGjrv9lOppYc1k",
-          "name": "Postgres account 2"
         }
       }
     },
@@ -502,8 +480,6 @@
       "name": "Search manual review candidates",
       "credentials": {
         "postgres": {
-          "id": "MYfGjrv9lOppYc1k",
-          "name": "Postgres account 2"
         }
       }
     },
@@ -526,8 +502,6 @@
       "webhookId": "6bcd1407-fdc4-47d6-910f-ee1961fdb3f9",
       "credentials": {
         "telegramApi": {
-          "id": "aKCOpGPcXblCpT1d",
-          "name": "Telegram account"
         }
       }
     },
