@@ -96,8 +96,6 @@
       "alwaysOutputData": true,
       "credentials": {
         "postgres": {
-          "id": "MYfGjrv9lOppYc1k",
-          "name": "Postgres account 2"
         }
       }
     },
@@ -117,8 +115,6 @@
       "name": "Update event status to failed",
       "credentials": {
         "postgres": {
-          "id": "MYfGjrv9lOppYc1k",
-          "name": "Postgres account 2"
         }
       }
     }
