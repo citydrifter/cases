@@ -50,8 +50,6 @@
       "webhookId": "e390ed25-d369-4878-8da0-9976f19b86b2",
       "credentials": {
         "telegramApi": {
-          "id": "aKCOpGPcXblCpT1d",
-          "name": "Telegram account"
         }
       }
     },
@@ -70,9 +68,7 @@
       "id": "0685c87c-9435-44b0-808b-6a3bad648846",
       "name": "Execute a SQL query",
       "credentials": {
-        "postgres": {
-          "id": "MYfGjrv9lOppYc1k",
-          "name": "Postgres account 2"
+        "postgres": (
         }
       }
     }
