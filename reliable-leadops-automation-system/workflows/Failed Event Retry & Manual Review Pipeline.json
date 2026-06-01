@@ -459,8 +459,6 @@
       "name": "invalid_payload_notification log",
       "credentials": {
         "postgres": {
-          "id": "MYfGjrv9lOppYc1k",
-          "name": "Postgres account 2"
         }
       }
     },
@@ -521,8 +519,6 @@
       "name": "success_notification log",
       "credentials": {
         "postgres": {
-          "id": "MYfGjrv9lOppYc1k",
-          "name": "Postgres account 2"
         }
       }
     },
