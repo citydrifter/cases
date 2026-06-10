@@ -1,0 +1,199 @@
+{
+  "name": "Manual Review Resolve",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "a6605360-fa40-450d-a5cd-552db0b4dc50",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "30a502de-d4f6-4a61-9392-31ac6fa74d61",
+      "name": "Webhook",
+      "webhookId": "a6605360-fa40-450d-a5cd-552db0b4dc50"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "afa6787c-e8cc-42e8-8db8-69b8a771212b",
+              "leftValue": "={{ $json.processing_status }}",
+              "rightValue": "manual_review",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        416,
+        0
+      ],
+      "id": "df632db2-96e4-422a-a955-6d2caa452b59",
+      "name": "is manual_review?"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"message\": \"Event returned to retry queue.\",\n  \"event_id\": \"{{ $json.internal_id }}\",\n  \"external_id\": \"{{ $json.external_id }}\",\n  \"processing_status\": \"{{ $json.processing_status }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        880,
+        -192
+      ],
+      "id": "8237415c-8127-4217-98d9-6751799114c4",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": false,\n  \"message\": \"Event not found or not in manual_review status.\",\n  \"event_id\": \"{{ $json.query?.event_id || $json.internal_id || 'unknown' }}\",\n  \"current_status\": \"{{ $json.processing_status || 'not_found' }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        624,
+        96
+      ],
+      "id": "8cf558c2-c582-42e2-bfbe-64f4efdc5e0d",
+      "name": "Respond to Webhook1"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n    internal_id,\n    external_id,\n    processing_status,\n    error_message\nFROM raw_events\nWHERE internal_id = {{ $json.query.event_id }};",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        208,
+        0
+      ],
+      "id": "6ba5d181-c396-4277-9411-c886be25747e",
+      "name": "Search event",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH updated_event AS (\n    UPDATE raw_events\n    SET processing_status = 'failed',\n        error_message = NULL,\n        manual_review_reason = NULL,\n        retry_count = 0,\n        next_retry_at = NOW(),\n        updated_at = NOW()\n    WHERE internal_id = {{ $json.internal_id }}\n      AND processing_status = 'manual_review'\n    RETURNING internal_id, external_id, processing_status\n),\n\ninserted_log AS (\n    INSERT INTO workflow_logs (\n        event_id,\n        step_name,\n        status,\n        wf_message\n    )\n    SELECT\n        internal_id,\n        'manual_review_resolved',\n        'success',\n        'Manual review resolved. Event returned to failed queue for retry.'\n    FROM updated_event\n    RETURNING event_id\n)\n\nSELECT\n    internal_id,\n    external_id,\n    processing_status\nFROM updated_event;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        640,
+        -144
+      ],
+      "id": "a863e2b5-a5b3-4f4c-b395-cbd6817a16ac",
+      "name": "Update event status to failed",
+      "credentials": {
+        "postgres": {
+        }
+      }
+    }
+  ],
+  "pinData": {
+    "Webhook": [
+      {
+        "json": {
+          "query": {
+            "event_id": "20"
+          }
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Search event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "is manual_review?": {
+      "main": [
+        [
+          {
+            "node": "Update event status to failed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond to Webhook1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search event": {
+      "main": [
+        [
+          {
+            "node": "is manual_review?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update event status to failed": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "61269db4-37e6-45a6-a4c1-0cc013185eb2",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "49a09db7efa01a7c7119f7127498f0870c70db8b6ad3f8ad75f8f2f312ddc0ad"
+  },
+  "id": "Ugyi91FXfoccWvZi",
+  "tags": []
+}
