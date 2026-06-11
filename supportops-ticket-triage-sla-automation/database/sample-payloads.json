@@ -1,0 +1,240 @@
+[
+  {
+    "id": "cu_support_00001",
+    "name": "Payment failed but invoice was generated",
+    "description": "I tried to complete payment for my subscription, but the payment failed while an invoice was still generated. Please check the charge and invoice status.",
+    "status": "new",
+    "url": "https://app.clickup.com/t/cu_support_00001",
+    "date_created": "2026-06-01T09:15:00Z",
+    "custom_fields": [
+      {
+        "id": "cf_requester_name",
+        "name": "Requester Name",
+        "type": "short_text",
+        "value": "Laura Adams",
+        "required": true
+      },
+      {
+        "id": "cf_requester_email",
+        "name": "Requester Email",
+        "type": "email",
+        "value": "laura.adams@example.com",
+        "required": true
+      },
+      {
+        "id": "cf_company",
+        "name": "Company",
+        "type": "short_text",
+        "value": "Adams Retail Group",
+        "required": false
+      },
+      {
+        "id": "cf_product",
+        "name": "Product",
+        "type": "drop_down",
+        "value": 0,
+        "type_config": {
+          "options": [
+            { "id": 0, "name": "Billing Portal", "color": null },
+            { "id": 1, "name": "Customer Dashboard", "color": null },
+            { "id": 2, "name": "API Platform", "color": null }
+          ]
+        }
+      },
+      {
+        "id": "cf_account_id",
+        "name": "Account ID",
+        "type": "short_text",
+        "value": "acct_10293",
+        "required": false
+      }
+    ]
+  },
+  {
+    "id": "cu_support_00002",
+    "name": "Production webhook integration is down",
+    "description": "Our production webhook integration stopped working and no customer events are being delivered. This is blocking our operations and needs urgent help.",
+    "status": "new",
+    "url": "https://app.clickup.com/t/cu_support_00002",
+    "date_created": "2026-06-01T09:45:00Z",
+    "custom_fields": [
+      {
+        "id": "cf_requester_name",
+        "name": "Requester Name",
+        "type": "short_text",
+        "value": "Daniel Brooks",
+        "required": true
+      },
+      {
+        "id": "cf_requester_email",
+        "name": "Requester Email",
+        "type": "email",
+        "value": "daniel.brooks@example.com",
+        "required": true
+      },
+      {
+        "id": "cf_company",
+        "name": "Company",
+        "type": "short_text",
+        "value": "Brooks Logistics",
+        "required": false
+      },
+      {
+        "id": "cf_product",
+        "name": "Product",
+        "type": "drop_down",
+        "value": 2,
+        "type_config": {
+          "options": [
+            { "id": 0, "name": "Billing Portal", "color": null },
+            { "id": 1, "name": "Customer Dashboard", "color": null },
+            { "id": 2, "name": "API Platform", "color": null }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "cu_support_00003",
+    "name": "Cannot access admin account",
+    "description": "I cannot access my admin account after changing permissions. Our team is blocked and we need access restored as soon as possible.",
+    "status": "new",
+    "url": "https://app.clickup.com/t/cu_support_00003",
+    "date_created": "2026-06-01T10:20:00Z",
+    "custom_fields": [
+      {
+        "id": "cf_requester_name",
+        "name": "Requester Name",
+        "type": "short_text",
+        "value": "Maya Patel",
+        "required": true
+      },
+      {
+        "id": "cf_requester_email",
+        "name": "Requester Email",
+        "type": "email",
+        "value": "maya.patel@example.com",
+        "required": true
+      },
+      {
+        "id": "cf_company",
+        "name": "Company",
+        "type": "short_text",
+        "value": "Patel Analytics",
+        "required": false
+      },
+      {
+        "id": "cf_product",
+        "name": "Product",
+        "type": "drop_down",
+        "value": 1,
+        "type_config": {
+          "options": [
+            { "id": 0, "name": "Billing Portal", "color": null },
+            { "id": 1, "name": "Customer Dashboard", "color": null },
+            { "id": 2, "name": "API Platform", "color": null }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "cu_support_00004",
+    "name": "Feature request: export dashboard as PDF",
+    "description": "It would be helpful if we could export the customer dashboard as a PDF report for our internal weekly reviews.",
+    "status": "new",
+    "url": "https://app.clickup.com/t/cu_support_00004",
+    "date_created": "2026-06-01T11:05:00Z",
+    "custom_fields": [
+      {
+        "id": "cf_requester_name",
+        "name": "Requester Name",
+        "type": "short_text",
+        "value": "Sophie Turner",
+        "required": true
+      },
+      {
+        "id": "cf_requester_email",
+        "name": "Requester Email",
+        "type": "email",
+        "value": "sophie.turner@example.com",
+        "required": true
+      },
+      {
+        "id": "cf_company",
+        "name": "Company",
+        "type": "short_text",
+        "value": "Turner Studio",
+        "required": false
+      },
+      {
+        "id": "cf_product",
+        "name": "Product",
+        "type": "drop_down",
+        "value": 1,
+        "type_config": {
+          "options": [
+            { "id": 0, "name": "Billing Portal", "color": null },
+            { "id": 1, "name": "Customer Dashboard", "color": null },
+            { "id": 2, "name": "API Platform", "color": null }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "cu_support_00005",
+    "name": "Refund request for cancelled subscription",
+    "description": "I cancelled my subscription but I was still charged. I need help with a refund.",
+    "status": "new",
+    "url": "https://app.clickup.com/t/cu_support_00005",
+    "date_created": "2026-06-01T11:40:00Z",
+    "custom_fields": [
+      {
+        "id": "cf_requester_name",
+        "name": "Requester Name",
+        "type": "short_text",
+        "value": "Emma Wilson",
+        "required": true
+      },
+      {
+        "id": "cf_requester_email",
+        "name": "Requester Email",
+        "type": "email",
+        "value": "",
+        "required": true
+      },
+      {
+        "id": "cf_company",
+        "name": "Company",
+        "type": "short_text",
+        "value": "Wilson Digital",
+        "required": false
+      }
+    ]
+  },
+  {
+    "task_id": "cu_support_00001",
+    "task_url": "https://app.clickup.com/t/cu_support_00001",
+    "name": "Payment failed but invoice was generated",
+    "status": {
+      "status": "resolved"
+    },
+    "date_updated": "2026-06-02T21:20:00Z",
+    "history_items": [
+      {
+        "field": "status",
+        "before": {
+          "status": "in progress"
+        },
+        "after": {
+          "status": "resolved"
+        }
+      }
+    ],
+    "user": {
+      "username": "Alice Support",
+      "email": "alice.support@example.com"
+    }
+  }
+]

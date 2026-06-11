@@ -1,0 +1,603 @@
+{
+  "name": "Ticket Intake & Triage Pipeline",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -80
+      ],
+      "id": "aece033d-dc61-43c8-aadc-a8ca7f121f9e",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => {\n  const input = item.json;\n\n  const customFields = Array.isArray(input.custom_fields)\n    ? input.custom_fields\n    : [];\n\n  const getField = (fieldName) => {\n    return customFields.find(field => field.name === fieldName);\n  };\n\n  const getFieldValue = (fieldName) => {\n    const field = getField(fieldName);\n\n    if (!field) return null;\n\n    if (field.type === 'drop_down' && field.type_config?.options) {\n      const option = field.type_config.options.find(option => {\n        return String(option.id) === String(field.value);\n      });\n\n      return option ? option.name : field.value;\n    }\n\n    return field.value ?? null;\n  };\n\n  const taskId = input.id;\n  const subject = input.name || '';\n  const message = input.description || '';\n\n  const requesterName = getFieldValue('Requester Name');\n  const requesterEmail = getFieldValue('Requester Email');\n  const requesterCompany = getFieldValue('Company');\n  const product = getFieldValue('Product');\n\n  const text = `${subject} ${message}`.toLowerCase();\n\n  let category = 'general';\n\n  if (/(payment|invoice|refund|subscription|charge|billing)/i.test(text)) {\n    category = 'billing';\n  } else if (/(bug|error|crash|api|webhook|integration|technical|production down)/i.test(text)) {\n    category = 'technical';\n  } else if (/(login|password|access|permission|account)/i.test(text)) {\n    category = 'account';\n  } else if (/(feature|request|improvement|would like)/i.test(text)) {\n    category = 'feature_request';\n  }\n\n  let priority = 'medium';\n\n  if (/(production down|data loss|cannot access|payment blocked|urgent)/i.test(text)) {\n    priority = 'urgent';\n  } else if (/(payment|invoice|api failing|major bug|refund|blocked)/i.test(text)) {\n    priority = 'high';\n  } else if (category === 'feature_request') {\n    priority = 'low';\n  }\n\n  const validationErrors = [\n    !taskId ? 'missing_task_id' : null,\n    !requesterEmail ? 'missing_requester_email' : null,\n    !subject ? 'missing_subject' : null,\n    !message ? 'missing_message' : null\n  ].filter(Boolean);\n\n  return {\n    json: {\n      external_id: taskId,\n      event_source: 'clickup_support_form',\n\n      clickup_task_id: taskId,\n      clickup_task_url: input.url || input.task_url || null,\n\n      requester_name: requesterName,\n      requester_email: requesterEmail\n        ? String(requesterEmail).toLowerCase().trim()\n        : null,\n      requester_company: requesterCompany,\n\n      subject,\n      message,\n      product,\n\n      category,\n      priority,\n\n      is_valid: validationErrors.length === 0,\n      validation_errors: validationErrors,\n\n      raw_clickup_payload: input\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        -80
+      ],
+      "id": "ee4ff3ab-2e30-48dc-8e0a-639cc388075c",
+      "name": "Normalize ClickUp Ticket"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "66729a30-0b24-4cbe-8521-5fa4cd0f57f8",
+              "leftValue": "={{ $json.is_valid }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        448,
+        -80
+      ],
+      "id": "7abb22c3-754d-4c2b-8479-af18241a10ec",
+      "name": "is valid?"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into raw_events (external_id, payload, event_source, processing_status, error_message, manual_review_reason)\nvalues (COALESCE(\n    NULLIF('{{ $('Normalize ClickUp Ticket').first().json.external_id }}', ''),\n    'missing_external_id_' || EXTRACT(EPOCH FROM NOW())::text\n),\n    '{{ JSON.stringify($('When clicking ‘Execute workflow’').item.json) }}'::jsonb,\n  '{{ $('Normalize ClickUp Ticket').first().json.event_source }}',\n  'manual_review',\n  'Validation failed: {{ $('Normalize ClickUp Ticket').first().json.validation_errors.join(\", \") }}',\n  'Invalid support ticket payload: {{ $('Normalize ClickUp Ticket').first().json.validation_errors.join(\", \") }}'\n  )\n  ON CONFLICT (external_id) DO UPDATE\nSET processing_status = 'manual_review',\n    error_message = EXCLUDED.error_message,\n    manual_review_reason = EXCLUDED.manual_review_reason,\n    updated_at = NOW()\nRETURNING internal_id, external_id;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        672,
+        112
+      ],
+      "id": "ed2c6d56-299a-4954-a0e6-4121c39d40f6",
+      "name": "Invalid event payload ",
+      "credentials": {
+        "postgres": {
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO workflow_logs (\n    workflow_name,\n    event_id,\n    step_name,\n    status,\n    wf_message\n)\nVALUES (\n   '{{ $workflow.name }}',\n    {{ $json.internal_id }},\n    'validation_failed',\n    'failed',\n    'Payload validation failed: {{ $('Normalize ClickUp Ticket').first().json.validation_errors.join(\", \") }}'\n);",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        896,
+        112
+      ],
+      "id": "43b894d6-5d3f-4e94-bd8f-24577be5bc64",
+      "name": "Invalid event payload log",
+      "credentials": {
+        "postgres": {
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "7745531696",
+        "text": "=🚨 Invalid support ticket payload  \n\nEvent ID: {{ $('Normalize ClickUp Ticket').first().json.external_id || 'missing_external_id' }}\nInternal ID: {{ $('Invalid event payload ').first().json.internal_id }}\nErrors: {{ $('Normalize ClickUp Ticket').first().json.validation_errors.join(\", \") }}  \nStatus: manual_review \nAction: inspect raw_events.payload and workflow_logs.\n\nClick the 'Retry' button to return this event to retry queue.",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "Retry",
+                    "additionalFields": {
+                      "url": "=https://karaoke-tunes-annually-controls.trycloudflare.com/webhook/a6605360-fa40-450d-a5cd-552db0b4dc50?event_id={{ $('Invalid event payload ').first().json.internal_id }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1120,
+        112
+      ],
+      "id": "347e2a72-fde8-4072-bff7-94db1d897011",
+      "name": "invalid payload notification",
+      "webhookId": "71aa08d0-8e6a-4e77-b1a5-647d5cb2cfc4",
+      "credentials": {
+        "telegramApi": {
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select internal_id, external_id from raw_events where external_id = '{{ $('Normalize ClickUp Ticket').item.json.external_id }}';",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        672,
+        -176
+      ],
+      "id": "30b0caab-b639-4ced-bb92-31576f16002a",
+      "name": "Search raw_event",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "a774e6e4-4003-407d-9b39-fe2f8a258e10",
+              "leftValue": "={{ $json.internal_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "number",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        896,
+        -176
+      ],
+      "id": "81831424-49a8-4e15-ad23-2f1764e8bc78",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into workflow_logs (workflow_name, event_id, step_name, status, wf_message) values ('{{ $workflow.name }}', {{ $json.internal_id }}, 'duplicate_event_check', 'skipped','Event already exists. Processing stopped.')",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1120,
+        -272
+      ],
+      "id": "ee53d925-c7d8-4949-a52f-a6418300fb51",
+      "name": "duplicate event log",
+      "credentials": {
+        "postgres": {
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1344,
+        -272
+      ],
+      "id": "7f926a5e-f48f-4354-a48d-26f41681f98b",
+      "name": "No Operation, do nothing"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into raw_events \n\t(\n\texternal_id,\n\tpayload,\n\tevent_source\n\t) \nvalues \n\t(\n\t'{{ $('Normalize ClickUp Ticket').item.json.external_id}}',\n  \t'{{ JSON.stringify($('When clicking ‘Execute workflow’').item.json)}}'::jsonb,\n\t'{{ $('Normalize ClickUp Ticket').item.json.event_source }}'\n\t)\n;\n\ninsert into workflow_logs \n\t(\n    workflow_name,\n\tevent_id,\n\tstep_name, \n\tstatus,\n    wf_message\n\t) \nvalues \n\t(\n    '{{ $workflow.name }}',\n\t(select internal_id from raw_events where external_id = '{{ $('Normalize ClickUp Ticket').item.json.external_id}}'), \n\t'raw_event_inserted', \n\t'success',\n    'Raw event inserted successfully.'\n\t)\n;\n\nselect * \nfrom raw_events \nwhere external_id = '{{ $('Normalize ClickUp Ticket').item.json.external_id}}';",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1120,
+        -80
+      ],
+      "id": "3057a6f0-5882-4a24-b22a-7b71f29d04cf",
+      "name": "Insert raw_event",
+      "credentials": {
+        "postgres": {
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n    {{ $json.internal_id }} AS event_id,\n    '{{ $('Normalize ClickUp Ticket').first().json.external_id }}' AS external_id,\n    '{{ $('Normalize ClickUp Ticket').first().json.clickup_task_id }}' AS clickup_task_id,\n    '{{ $('Normalize ClickUp Ticket').first().json.clickup_task_url }}' AS clickup_task_url,\n\n    '{{ $('Normalize ClickUp Ticket').first().json.requester_name }}' AS requester_name,\n    '{{ $('Normalize ClickUp Ticket').first().json.requester_email }}' AS requester_email,\n    '{{ $('Normalize ClickUp Ticket').first().json.requester_company }}' AS requester_company,\n\n    '{{ $('Normalize ClickUp Ticket').first().json.subject }}' AS subject,\n    '{{ $('Normalize ClickUp Ticket').first().json.message }}' AS message,\n    '{{ $('Normalize ClickUp Ticket').first().json.product }}' AS product,\n\n    '{{ $('Normalize ClickUp Ticket').first().json.category }}' AS category,\n    '{{ $('Normalize ClickUp Ticket').first().json.priority }}' AS priority,\n\n    sp.internal_id AS sla_policy_id,\n    sp.response_time_minutes,\n    NOW() + (sp.response_time_minutes || ' minutes')::interval AS sla_due_at\nFROM sla_policies sp\nWHERE sp.priority = '{{ $('Normalize ClickUp Ticket').first().json.priority }}';",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1328,
+        -80
+      ],
+      "id": "febfbb99-e133-40ca-a66b-61c002933df7",
+      "name": "Calculate SLA",
+      "credentials": {
+        "postgres": {
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n    {{ $json.event_id }} AS event_id,\n    '{{ $json.external_id }}' AS external_id,\n    '{{ $json.clickup_task_id }}' AS clickup_task_id,\n    '{{ $json.clickup_task_url }}' AS clickup_task_url,\n\n    '{{ $json.requester_name }}' AS requester_name,\n    '{{ $json.requester_email }}' AS requester_email,\n    '{{ $json.requester_company }}' AS requester_company,\n\n    '{{ $json.subject }}' AS subject,\n    '{{ $json.message }}' AS message,\n    '{{ $json.product }}' AS product,\n\n    '{{ $json.category }}' AS category,\n    '{{ $json.priority }}' AS priority,\n\n    {{ $json.sla_policy_id }} AS sla_policy_id,\n    '{{ $json.sla_due_at }}'::timestamp AS sla_due_at,\n\n    CASE\n        WHEN '{{ $json.category }}' = 'billing' THEN 'Billing'\n        WHEN '{{ $json.category }}' = 'technical' THEN 'Technical'\n        WHEN '{{ $json.category }}' = 'account' THEN 'Customer Success'\n        WHEN '{{ $json.category }}' = 'feature_request' THEN 'Customer Success'\n        ELSE 'Operations'\n    END AS assigned_team,\n\n    tm.member_email AS assigned_to\nFROM team_members tm\nWHERE tm.team_name =\n    CASE\n        WHEN '{{ $json.category }}' = 'billing' THEN 'Billing'\n        WHEN '{{ $json.category }}' = 'technical' THEN 'Technical'\n        WHEN '{{ $json.category }}' = 'account' THEN 'Customer Success'\n        WHEN '{{ $json.category }}' = 'feature_request' THEN 'Customer Success'\n        ELSE 'Operations'\n    END\n  AND tm.is_active = true\nORDER BY tm.internal_id\nLIMIT 1;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1536,
+        -80
+      ],
+      "id": "620aee63-5b4f-4bf0-9705-7c8d456073ed",
+      "name": "Assign support owner",
+      "credentials": {
+        "postgres": {
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH inserted_ticket AS (\n    INSERT INTO tickets (\n        external_id,\n        event_id,\n        requester_name,\n        requester_email,\n        requester_company,\n        subject,\n        message,\n        product,\n        category,\n        priority,\n        status,\n        assigned_team,\n        assigned_to,\n        sla_policy_id,\n        sla_due_at\n    )\n    VALUES (\n        '{{ $json.external_id }}',\n        {{ $json.event_id }},\n        '{{ $json.requester_name }}',\n        '{{ $json.requester_email }}',\n        '{{ $json.requester_company }}',\n        '{{ $json.subject }}',\n        '{{ $json.message }}',\n        '{{ $json.product }}',\n        '{{ $json.category }}',\n        '{{ $json.priority }}',\n        'open',\n        '{{ $json.assigned_team }}',\n        '{{ $json.assigned_to }}',\n        {{ $json.sla_policy_id }},\n        '{{ $json.sla_due_at }}'::timestamp\n    )\n    ON CONFLICT (external_id) DO UPDATE\n    SET updated_at = NOW()\n    RETURNING *\n),\n\nticket_log AS (\n    INSERT INTO ticket_logs (\n        ticket_id,\n        action,\n        actor_type,\n        message\n    )\n    SELECT\n        internal_id,\n        'ticket_created',\n        'system',\n        'Ticket created from ClickUp form and triaged automatically.'\n    FROM inserted_ticket\n    RETURNING ticket_id\n),\n\nworkflow_log AS (\n    INSERT INTO workflow_logs (\n        workflow_name,\n        event_id,\n        ticket_id,\n        step_name,\n        status,\n        wf_message\n    )\n    SELECT\n        '{{ $workflow.name }}',\n        event_id,\n        internal_id,\n        'ticket_created',\n        'success',\n        'Support ticket created and triaged successfully.'\n    FROM inserted_ticket\n    RETURNING ticket_id\n)\n\nSELECT\n    internal_id AS ticket_id,\n    event_id,\n    external_id,\n    requester_name,\n    requester_email,\n    requester_company,\n    subject,\n    message,\n    product,\n    category,\n    priority,\n    status,\n    assigned_team,\n    assigned_to,\n    sla_policy_id,\n    sla_due_at\nFROM inserted_ticket;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1744,
+        -80
+      ],
+      "id": "848b6782-28ec-46f9-ac1b-67f4a3a6754d",
+      "name": "Insert ticket",
+      "credentials": {
+        "postgres": {
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "7745531696",
+        "text": "=🎫 New support ticket triaged\n\nTicket: {{ $json.external_id }}\nSubject: {{ $json.subject }}\n\nCategory: {{ $json.category }}\nPriority: {{ $json.priority }}\n\nAssigned team: {{ $json.assigned_team }}\nAssigned to: {{ $json.assigned_to }}\n\nSLA due at: {{ $json.sla_due_at }}\n\nRequester: {{ $json.requester_name }} <{{ $json.requester_email }}>\nCompany: {{ $json.requester_company || 'n/a' }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1952,
+        -80
+      ],
+      "id": "84b85e5f-b169-4f66-893d-92304ef82ec1",
+      "name": "New support ticket notification",
+      "webhookId": "6c880970-a33c-4fc1-a5b4-7ed1e1150ba2",
+      "credentials": {
+        "telegramApi": {
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE raw_events\nSET processing_status = 'completed',\n    processed_at = NOW(),\n    updated_at = NOW(),\n    error_message = NULL\nWHERE internal_id = {{ $('Insert ticket').item.json.event_id }};\n\nINSERT INTO workflow_logs (\n    workflow_name,\n    event_id,\n    ticket_id,\n    step_name,\n    status,\n    wf_message\n)\nVALUES (\n    '{{ $workflow.name }}',\n    {{ $('Insert ticket').item.json.event_id }},\n    {{ $('Insert ticket').item.json.ticket_id }},\n    'event_completed',\n    'success',\n    'Support ticket intake event completed.'\n);\n\nINSERT INTO workflow_logs (\n    workflow_name,\n    event_id,\n    ticket_id,\n    step_name,\n    status,\n    wf_message\n)\nVALUES (\n    '{{ $workflow.name }}',\n    {{ $('Insert ticket').item.json.event_id }},\n    {{ $('Insert ticket').item.json.ticket_id }},\n    'notification_sent',\n    'success',\n    'Support ticket triage notification sent.'\n);\n\nSELECT\n    {{ $('Insert ticket').item.json.ticket_id }} AS ticket_id,\n    {{ $('Insert ticket').item.json.event_id }} AS event_id,\n    '{{ $('Insert ticket').item.json.external_id }}' AS external_id,\n    'completed' AS processing_status;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2160,
+        -80
+      ],
+      "id": "cb04076a-a9e5-4190-aebf-eb103d5400c0",
+      "name": "Complete event",
+      "credentials": {
+        "postgres": {
+        }
+      }
+    }
+  ],
+  "pinData": {
+    "When clicking ‘Execute workflow’": [
+      {
+        "json": {
+          "id": "cu_support_00001",
+          "name": "Payment failed but invoice was generated",
+          "description": "I tried to complete payment for my subscription, but the payment failed while an invoice was still generated. Please check the charge and invoice status.",
+          "status": "new",
+          "url": "https://app.clickup.com/t/cu_support_00001",
+          "date_created": "2026-06-01T09:15:00Z",
+          "custom_fields": [
+            {
+              "id": "cf_requester_name",
+              "name": "Requester Name",
+              "type": "short_text",
+              "value": "Laura Adams",
+              "required": true
+            },
+            {
+              "id": "cf_requester_email",
+              "name": "Requester Email",
+              "type": "email",
+              "value": "laura.adams@example.com",
+              "required": true
+            },
+            {
+              "id": "cf_company",
+              "name": "Company",
+              "type": "short_text",
+              "value": "Adams Retail Group",
+              "required": false
+            },
+            {
+              "id": "cf_product",
+              "name": "Product",
+              "type": "drop_down",
+              "value": 0,
+              "type_config": {
+                "options": [
+                  {
+                    "id": 0,
+                    "name": "Billing Portal",
+                    "color": null
+                  },
+                  {
+                    "id": 1,
+                    "name": "Customer Dashboard",
+                    "color": null
+                  },
+                  {
+                    "id": 2,
+                    "name": "API Platform",
+                    "color": null
+                  }
+                ]
+              }
+            },
+            {
+              "id": "cf_account_id",
+              "name": "Account ID",
+              "type": "short_text",
+              "value": "acct_10293",
+              "required": false
+            },
+            {
+              "id": "cf_customer_plan",
+              "name": "Customer Plan",
+              "type": "drop_down",
+              "value": 2,
+              "type_config": {
+                "options": [
+                  {
+                    "id": 0,
+                    "name": "Free",
+                    "color": null
+                  },
+                  {
+                    "id": 1,
+                    "name": "Pro",
+                    "color": null
+                  },
+                  {
+                    "id": 2,
+                    "name": "Business",
+                    "color": null
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Normalize ClickUp Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize ClickUp Ticket": {
+      "main": [
+        [
+          {
+            "node": "is valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "is valid?": {
+      "main": [
+        [
+          {
+            "node": "Search raw_event",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Invalid event payload ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Invalid event payload ": {
+      "main": [
+        [
+          {
+            "node": "Invalid event payload log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Invalid event payload log": {
+      "main": [
+        [
+          {
+            "node": "invalid payload notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search raw_event": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "duplicate event log",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Insert raw_event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "duplicate event log": {
+      "main": [
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert raw_event": {
+      "main": [
+        [
+          {
+            "node": "Calculate SLA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate SLA": {
+      "main": [
+        [
+          {
+            "node": "Assign support owner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assign support owner": {
+      "main": [
+        [
+          {
+            "node": "Insert ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert ticket": {
+      "main": [
+        [
+          {
+            "node": "New support ticket notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "New support ticket notification": {
+      "main": [
+        [
+          {
+            "node": "Complete event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "1aee8dc7-e93e-4992-991e-4d2a495e05f8",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "49a09db7efa01a7c7119f7127498f0870c70db8b6ad3f8ad75f8f2f312ddc0ad"
+  },
+  "id": "LHw4dzCpKQTq4jgN",
+  "tags": []
+}

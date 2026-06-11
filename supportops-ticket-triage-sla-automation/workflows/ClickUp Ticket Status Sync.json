@@ -1,0 +1,415 @@
+{
+  "name": "ClickUp Ticket Status Sync",
+  "nodes": [
+    {
+      "parameters": {
+        "events": [
+          "taskUpdated"
+        ],
+        "filters": {
+          "taskId": ""
+        }
+      },
+      "type": "n8n-nodes-base.clickUpTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        64
+      ],
+      "id": "645a89ba-f896-441e-9d09-f23e3832b4a6",
+      "name": "ClickUp Trigger",
+      "webhookId": "d9a379d7-8619-4894-930b-39b5a09fe6b4"
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => {\n  const input = item.json;\n\n  const taskId =\n    input.task_id ||\n    input.id ||\n    input.task?.id ||\n    input.payload?.task_id ||\n    null;\n\n  const taskUrl =\n    input.task_url ||\n    input.url ||\n    input.task?.url ||\n    null;\n\n  const subject =\n    input.name ||\n    input.task?.name ||\n    input.subject ||\n    null;\n\n  const clickupStatusRaw =\n    input.status?.status ||\n    input.status ||\n    input.task?.status?.status ||\n    input.task?.status ||\n    input.payload?.status ||\n    null;\n\n  const actorName =\n    input.user?.username ||\n    input.user?.name ||\n    input.actor?.name ||\n    input.updated_by?.username ||\n    'ClickUp user';\n\n  const actorEmail =\n    input.user?.email ||\n    input.actor?.email ||\n    input.updated_by?.email ||\n    null;\n\n  const historyItems = Array.isArray(input.history_items)\n    ? input.history_items\n    : [];\n\n  const statusHistoryItem = historyItems.find(h => {\n    return h.field === 'status' || h.field_name === 'status';\n  });\n\n  const isStatusChange = Boolean(statusHistoryItem);\n\n  const oldStatusRaw =\n    statusHistoryItem?.before?.status ||\n    statusHistoryItem?.before ||\n    statusHistoryItem?.old_value?.status ||\n    statusHistoryItem?.old_value ||\n    null;\n\n  const newStatusRaw =\n    statusHistoryItem?.after?.status ||\n    statusHistoryItem?.after ||\n    statusHistoryItem?.new_value?.status ||\n    statusHistoryItem?.new_value ||\n    clickupStatusRaw;\n\n  const normalizeStatus = (value) => {\n    if (!value) return null;\n\n    const normalized = String(value)\n      .toLowerCase()\n      .trim()\n      .replace(/\\s+/g, '_')\n      .replace(/-/g, '_');\n\n    const map = {\n      'to_do': 'open',\n      'todo': 'open',\n      'new': 'open',\n      'open': 'open',\n\n      'in_progress': 'in_progress',\n      'doing': 'in_progress',\n      'active': 'in_progress',\n\n      'waiting_customer': 'waiting_customer',\n      'waiting_for_customer': 'waiting_customer',\n      'waiting': 'waiting_customer',\n\n      'resolved': 'resolved',\n      'done': 'resolved',\n\n      'closed': 'closed',\n      'complete': 'closed',\n      'completed': 'closed',\n\n      'escalated': 'escalated'\n    };\n\n    return map[normalized] || normalized;\n  };\n\n  const oldStatus = normalizeStatus(oldStatusRaw);\n  const newStatus = normalizeStatus(newStatusRaw);\n\n  const allowedStatuses = [\n    'open',\n    'in_progress',\n    'waiting_customer',\n    'resolved',\n    'closed',\n    'escalated'\n  ];\n\n  const validationErrors = [\n    !taskId ? 'missing_task_id' : null,\n    !isStatusChange ? 'not_status_change_event' : null,\n    !newStatus ? 'missing_new_status' : null,\n    newStatus && !allowedStatuses.includes(newStatus) ? 'invalid_new_status' : null\n  ].filter(Boolean);\n\n  return {\n    json: {\n      clickup_task_id: taskId,\n      clickup_task_url: taskUrl,\n      subject,\n\n      is_status_change: isStatusChange,\n\n      old_status_from_clickup: oldStatus,\n      new_status: newStatus,\n\n      actor_name: actorName,\n      actor_email: actorEmail,\n\n      is_valid: validationErrors.length === 0,\n      validation_errors: validationErrors,\n\n      raw_clickup_status_payload: input\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        64
+      ],
+      "id": "275487f5-a79a-4fd0-b9f0-4ee99c06a46e",
+      "name": "Normalize ClickUp Status Event"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n    internal_id AS ticket_id,\n    external_id,\n    subject,\n    status AS current_status,\n    requester_email,\n    category,\n    priority,\n    assigned_team,\n    assigned_to,\n    sla_due_at,\n    first_response_at,\n    resolved_at\nFROM tickets\nWHERE external_id = '{{ $json.clickup_task_id }}';",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        672,
+        -32
+      ],
+      "id": "174376d6-697c-42a2-b415-e6d3ffa2a021",
+      "name": "Search local ticket",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "7745531696",
+        "text": "=⚠️ ClickUp status sync skipped\n\nReason: local ticket not found\nClickUp task: {{ $('Normalize ClickUp Status Event').first().json.clickup_task_id }}\nNew status: {{ $('Normalize ClickUp Status Event').first().json.new_status }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1120,
+        64
+      ],
+      "id": "c30f5593-cd73-432c-994b-08a0c8f84085",
+      "name": "Ticket not found",
+      "webhookId": "04214d9a-c060-4104-aa2d-e6881eef82b7",
+      "credentials": {
+        "telegramApi": {
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => {\n  const ticket = item.json;\n  const update = $('Normalize ClickUp Status Event').first().json;\n\n  const currentStatus = ticket.current_status;\n  const newStatus = update.new_status;\n\n  const transitions = {\n    open: ['in_progress', 'waiting_customer', 'resolved', 'closed', 'escalated'],\n    in_progress: ['waiting_customer', 'resolved', 'closed', 'escalated'],\n    waiting_customer: ['in_progress', 'resolved', 'closed', 'escalated'],\n    resolved: ['closed', 'in_progress'],\n    closed: [],\n    escalated: ['in_progress', 'resolved', 'closed']\n  };\n\n  const transitionAllowed =\n    currentStatus === newStatus ||\n    transitions[currentStatus]?.includes(newStatus);\n\n  return {\n    json: {\n      ...ticket,\n\n      clickup_task_id: update.clickup_task_id,\n      clickup_task_url: update.clickup_task_url,\n\n      old_status: currentStatus,\n      new_status: newStatus,\n\n      actor_name: update.actor_name,\n      actor_email: update.actor_email,\n\n      transition_allowed: transitionAllowed,\n      transition_error: transitionAllowed\n        ? null\n        : `Transition from ${currentStatus} to ${newStatus} is not allowed.`\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        -128
+      ],
+      "id": "15c95bae-2ae2-4825-971a-a62cdfabcfde",
+      "name": "Validate status transition"
+    },
+    {
+      "parameters": {
+        "chatId": "7745531696",
+        "text": "=⚠️ ClickUp status sync rejected\n\nTicket: {{ $json.external_id }}\nCurrent status: {{ $json.old_status }}\nRequested status: {{ $json.new_status }}\n\nReason: {{ $json.transition_error }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1568,
+        -32
+      ],
+      "id": "f2f3892f-6397-4438-99e8-11a2456524f7",
+      "name": "Transition rejected",
+      "webhookId": "04214d9a-c060-4104-aa2d-e6881eef82b7",
+      "credentials": {
+        "telegramApi": {
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH updated_ticket AS (\n    UPDATE tickets\n    SET status = '{{ $json.new_status }}',\n        first_response_at = CASE\n            WHEN first_response_at IS NULL\n             AND status = 'open'\n             AND '{{ $json.new_status }}' IN ('in_progress', 'waiting_customer', 'resolved')\n            THEN NOW()\n            ELSE first_response_at\n        END,\n        resolved_at = CASE\n            WHEN '{{ $json.new_status }}' = 'resolved'\n            THEN NOW()\n            ELSE resolved_at\n        END,\n        updated_at = NOW()\n    WHERE internal_id = {{ $json.ticket_id }}\n    RETURNING\n        internal_id AS ticket_id,\n        external_id,\n        subject,\n        requester_email,\n        category,\n        priority,\n        status,\n        assigned_team,\n        assigned_to,\n        sla_due_at,\n        first_response_at,\n        resolved_at,\n        updated_at\n),\n\ninsert_ticket_log AS (\n    INSERT INTO ticket_logs (\n        ticket_id,\n        action,\n        old_value,\n        new_value,\n        actor_type,\n        actor_name,\n        message\n    )\n    SELECT\n        ticket_id,\n        'status_synced_from_clickup',\n        '{{ $json.old_status }}',\n        status,\n        'agent',\n        '{{ $json.actor_name }}',\n        'Ticket status synced from ClickUp.'\n    FROM updated_ticket\n    RETURNING ticket_id\n),\n\ninsert_workflow_log AS (\n    INSERT INTO workflow_logs (\n        workflow_name,\n        ticket_id,\n        step_name,\n        status,\n        wf_message\n    )\n    SELECT\n        '{{ $workflow.name }}',\n        ticket_id,\n        'clickup_status_synced',\n        'success',\n        'Ticket status synced from ClickUp: {{ $json.old_status }} → {{ $json.new_status }}.'\n    FROM updated_ticket\n    RETURNING ticket_id\n)\n\nSELECT\n    ticket_id,\n    external_id,\n    subject,\n    requester_email,\n    category,\n    priority,\n    status,\n    assigned_team,\n    assigned_to,\n    sla_due_at,\n    first_response_at,\n    resolved_at,\n    updated_at\nFROM updated_ticket;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1568,
+        -224
+      ],
+      "id": "39d7f612-1866-401d-b9c2-18d586abf2cf",
+      "name": "Update local ticket status",
+      "credentials": {
+        "postgres": {
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "7745531696",
+        "text": "=🔄 ClickUp ticket status synced\n\nTicket: {{ $json.external_id }}\nSubject: {{ $json.subject }}\n\nNew status: {{ $json.status }}\nPriority: {{ $json.priority }}\nCategory: {{ $json.category }}\n\nAssigned team: {{ $json.assigned_team }}\nAssigned to: {{ $json.assigned_to }}\n\nRequester: {{ $json.requester_email }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1792,
+        -224
+      ],
+      "id": "c90b832b-321b-47d7-bdd6-e4c963abbc99",
+      "name": "Ticket status synced",
+      "webhookId": "20fe52f2-99cd-428d-82bd-7894a1e86172",
+      "credentials": {
+        "telegramApi": {
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        672,
+        160
+      ],
+      "id": "196cc8fd-4dce-4b67-86ef-3558d90d66f6",
+      "name": "No Operation, do nothing"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "74665030-f853-419c-9c86-6c00ac20e934",
+              "leftValue": "={{ $json.is_valid }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        448,
+        64
+      ],
+      "id": "13f37b37-55af-4229-9619-a296071176a4",
+      "name": "is valid?"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "5821f855-6748-448c-a515-00b039c1d2cb",
+              "leftValue": "={{ $json.transition_allowed }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1344,
+        -128
+      ],
+      "id": "d687f2f3-c171-4402-8798-cde3330156f6",
+      "name": "transition allowed?"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "574bf7ec-56d4-42d1-ad52-b82d9d01cfc5",
+              "leftValue": "={{ $json.ticket_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "number",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        896,
+        -32
+      ],
+      "id": "3be37694-1e6a-4f6d-9ae0-a2fde6105b8b",
+      "name": "ticket exist?"
+    }
+  ],
+  "pinData": {
+    "ClickUp Trigger": [
+      {
+        "json": {
+          "task_id": "cu_support_00001",
+          "task_url": "https://app.clickup.com/t/cu_support_00001",
+          "name": "Payment failed but invoice was generated",
+          "status": {
+            "status": "closed"
+          },
+          "date_updated": "2026-06-02T21:30:00Z",
+          "history_items": [
+            {
+              "field": "status",
+              "before": {
+                "status": "resolved"
+              },
+              "after": {
+                "status": "closed"
+              }
+            }
+          ],
+          "user": {
+            "username": "Alice Support",
+            "email": "alice.support@example.com"
+          }
+        }
+      }
+    ]
+  },
+  "connections": {
+    "ClickUp Trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalize ClickUp Status Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize ClickUp Status Event": {
+      "main": [
+        [
+          {
+            "node": "is valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search local ticket": {
+      "main": [
+        [
+          {
+            "node": "ticket exist?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate status transition": {
+      "main": [
+        [
+          {
+            "node": "transition allowed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update local ticket status": {
+      "main": [
+        [
+          {
+            "node": "Ticket status synced",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "is valid?": {
+      "main": [
+        [
+          {
+            "node": "Search local ticket",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "transition allowed?": {
+      "main": [
+        [
+          {
+            "node": "Update local ticket status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Transition rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ticket exist?": {
+      "main": [
+        [
+          {
+            "node": "Validate status transition",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ticket not found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "c5983194-efb7-497f-8456-3dde2546ae5f",
+  "meta": {
+    "instanceId": "49a09db7efa01a7c7119f7127498f0870c70db8b6ad3f8ad75f8f2f312ddc0ad"
+  },
+  "id": "0k510Z1Z0UnMdllX",
+  "tags": []
+}

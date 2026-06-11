@@ -1,0 +1,342 @@
+{
+  "name": "SLA Monitoring & Escalation Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {}
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        192
+      ],
+      "id": "c0c4d115-0eb7-4df0-bbef-8f815cfacb46",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n    internal_id AS ticket_id,\n    external_id,\n    subject,\n    category,\n    priority,\n    status,\n    assigned_team,\n    assigned_to,\n    requester_email,\n    sla_due_at,\n    sla_warning_sent_at,\n    escalated_at\nFROM tickets\nWHERE status IN ('open', 'in_progress')\n  AND sla_due_at > NOW()\n  AND sla_due_at <= NOW() + INTERVAL '30 minutes'\n  AND sla_warning_sent_at IS NULL\nORDER BY sla_due_at ASC;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        0
+      ],
+      "id": "ac3d721c-7f96-4715-a798-3c30b741cb92",
+      "name": "Search SLA warning tickets",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "652c63c7-ea82-4b17-96cd-651e06dc7494",
+              "leftValue": "={{ $json.ticket_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "number",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        448,
+        0
+      ],
+      "id": "5952ffbd-318f-49f1-bc73-8752b9319d13",
+      "name": "If"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        672,
+        96
+      ],
+      "id": "a0fad841-1484-4139-ac4f-3f3f4d21f0d3",
+      "name": "No Operation, do nothing"
+    },
+    {
+      "parameters": {
+        "chatId": "7745531696",
+        "text": "=⚠️ SLA warning\n\nTicket: {{ $json.external_id }}\nSubject: {{ $json.subject }}\n\nPriority: {{ $json.priority }}\nCategory: {{ $json.category }}\n\nAssigned team: {{ $json.assigned_team }}\nAssigned to: {{ $json.assigned_to }}\n\nSLA due at: {{ $json.sla_due_at }}\n\nAction: please respond before SLA breach.",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        672,
+        -96
+      ],
+      "id": "10969877-1f56-46e9-a965-e8b26179b8bb",
+      "name": "SLA warning",
+      "webhookId": "85cb99ee-dc5f-4d38-9bf1-796e95a1563d",
+      "credentials": {
+        "telegramApi": {
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH updated_ticket AS (\n    UPDATE tickets\n    SET sla_warning_sent_at = NOW(),\n        updated_at = NOW()\n    WHERE internal_id = {{ $('If').item.json.ticket_id }}\n      AND sla_warning_sent_at IS NULL\n    RETURNING\n        internal_id AS ticket_id,\n        external_id,\n        subject,\n        category,\n        priority,\n        status,\n        assigned_team,\n        assigned_to,\n        requester_email,\n        sla_due_at,\n        sla_warning_sent_at\n),\n\ninsert_ticket_log AS (\n    INSERT INTO ticket_logs (\n        ticket_id,\n        action,\n        actor_type,\n        message\n    )\n    SELECT\n        ticket_id,\n        'sla_warning_sent',\n        'system',\n        'SLA warning sent before due time.'\n    FROM updated_ticket\n    RETURNING ticket_id\n),\n\ninsert_workflow_log AS (\n    INSERT INTO workflow_logs (\n        workflow_name,\n        ticket_id,\n        step_name,\n        status,\n        wf_message\n    )\n    SELECT\n        '{{ $workflow.name }}',\n        ticket_id,\n        'sla_warning_sent',\n        'success',\n        'SLA warning notification sent.'\n    FROM updated_ticket\n    RETURNING ticket_id\n)\n\nSELECT\n    ticket_id,\n    external_id,\n    subject,\n    category,\n    priority,\n    status,\n    assigned_team,\n    assigned_to,\n    requester_email,\n    sla_due_at,\n    sla_warning_sent_at\nFROM updated_ticket;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        896,
+        -96
+      ],
+      "id": "dc8a0a34-e0d5-4252-b57a-98b4e531e96b",
+      "name": "Mark SLA warning sent",
+      "credentials": {
+        "postgres": {
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n    internal_id AS ticket_id,\n    external_id,\n    subject,\n    category,\n    priority,\n    status,\n    assigned_team,\n    assigned_to,\n    requester_email,\n    sla_due_at,\n    sla_warning_sent_at,\n    escalated_at\nFROM tickets\nWHERE status IN ('open')\n  AND sla_due_at <= NOW()\n  AND escalated_at IS NULL\nORDER BY sla_due_at ASC;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        384
+      ],
+      "id": "d31398b1-31bd-48fe-97eb-d7f87a4466ca",
+      "name": "Search breached tickets",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "9a073164-4ce6-4c5e-b4f3-75b20e89604f",
+              "leftValue": "={{ $json.ticket_id }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        448,
+        384
+      ],
+      "id": "57402ce1-6e71-4efb-9a0a-45c18ae0add4",
+      "name": "If1"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        672,
+        480
+      ],
+      "id": "ae63adab-5c9d-4315-9772-2b8b069e0a4b",
+      "name": "No Operation, do nothing1"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH updated_ticket AS (\n    UPDATE tickets\n    SET status = 'escalated',\n        escalated_at = NOW(),\n        updated_at = NOW()\n    WHERE internal_id = {{ $json.ticket_id }}\n      AND status IN ('open', 'in_progress')\n      AND escalated_at IS NULL\n    RETURNING\n        internal_id AS ticket_id,\n        external_id,\n        subject,\n        category,\n        priority,\n        status,\n        assigned_team,\n        assigned_to,\n        requester_email,\n        sla_due_at,\n        escalated_at\n),\n\ninsert_ticket_log AS (\n    INSERT INTO ticket_logs (\n        ticket_id,\n        action,\n        old_value,\n        new_value,\n        actor_type,\n        message\n    )\n    SELECT\n        ticket_id,\n        'status_changed',\n        'open',\n        'escalated',\n        'system',\n        'Ticket escalated because SLA was breached.'\n    FROM updated_ticket\n    RETURNING ticket_id\n),\n\ninsert_workflow_log AS (\n    INSERT INTO workflow_logs (\n        workflow_name,\n        ticket_id,\n        step_name,\n        status,\n        wf_message\n    )\n    SELECT\n        '{{ $workflow.name }}',\n        ticket_id,\n        'sla_breach_detected',\n        'success',\n        'SLA breached. Ticket escalated.'\n    FROM updated_ticket\n    RETURNING ticket_id\n)\n\nSELECT\n    ticket_id,\n    external_id,\n    subject,\n    category,\n    priority,\n    status,\n    assigned_team,\n    assigned_to,\n    requester_email,\n    sla_due_at,\n    escalated_at\nFROM updated_ticket;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        672,
+        288
+      ],
+      "id": "b41424d1-32c6-4004-96ac-7682bb7de816",
+      "name": "Escalate breached ticket",
+      "credentials": {
+        "postgres": {
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "7745531696",
+        "text": "=🚨 SLA breached\n\nTicket: {{ $json.external_id }}\nSubject: {{ $json.subject }}\n\nPriority: {{ $json.priority }}\nCategory: {{ $json.category }}\n\nAssigned team: {{ $json.assigned_team }}\nAssigned to: {{ $json.assigned_to }}\n\nSLA due at: {{ $json.sla_due_at }}\nEscalated at: {{ $json.escalated_at }}\n\nStatus: {{ $json.status }}\n\nAction: manager attention required.",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        912,
+        224
+      ],
+      "id": "f11bc324-3f31-4dee-acc5-c25f00fe71f1",
+      "name": "SLA breached",
+      "webhookId": "85cb99ee-dc5f-4d38-9bf1-796e95a1563d",
+      "credentials": {
+        "telegramApi": {
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Search SLA warning tickets",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Search breached tickets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search SLA warning tickets": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "SLA warning",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SLA warning": {
+      "main": [
+        [
+          {
+            "node": "Mark SLA warning sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search breached tickets": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Escalate breached ticket",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation, do nothing1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Escalate breached ticket": {
+      "main": [
+        [
+          {
+            "node": "SLA breached",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "340ff97e-9183-47bb-99bb-fe299464747c",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "49a09db7efa01a7c7119f7127498f0870c70db8b6ad3f8ad75f8f2f312ddc0ad"
+  },
+  "id": "t9CTWGCNBwA9xrBS",
+  "tags": []
+}
