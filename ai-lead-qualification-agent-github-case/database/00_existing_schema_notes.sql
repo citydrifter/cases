@@ -1,0 +1,13 @@
+-- Existing schema assumed by this case.
+-- This case reuses these tables:
+-- public.raw_events
+-- public.leads
+-- public.workflow_logs
+-- public.team_members
+-- public.sla_policies
+--
+-- raw_events.internal_id is used as event_id / run_id.
+-- leads.internal_id is used as canonical lead_id.
+-- workflow_logs stores workflow audit entries.
+--
+-- Do not drop or rename columns from previous cases.

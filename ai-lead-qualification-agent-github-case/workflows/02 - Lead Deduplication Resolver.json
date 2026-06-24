@@ -1,0 +1,413 @@
+{
+  "name": "02 - Lead Deduplication Resolver",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "4a2360bb-4048-4f51-a9bf-6d39347a7560",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json || {};\n\nlet lead = input.normalized_lead || {};\n\nif (typeof lead === \"string\") {\n  lead = JSON.parse(lead);\n}\n\nfunction clean(value) {\n  if (value === undefined || value === null) return null;\n  const text = String(value).trim();\n  return text.length ? text : null;\n}\n\nfunction lower(value) {\n  const text = clean(value);\n  return text ? text.toLowerCase() : null;\n}\n\nconst eventId = Number(input.event_id || input.run_id);\n\nif (!eventId) {\n  throw new Error(\"Missing event_id/run_id from Workflow 01\");\n}\n\nconst externalId =\n  clean(input.external_id) ||\n  clean(lead.external_id) ||\n  `${clean(input.event_source || lead.source || \"unknown\")}:${clean(lead.source_event_id || eventId)}`;\n\nconst email = lower(lead.email);\n\nconst fullName =\n  clean(lead.full_name) ||\n  [clean(lead.first_name), clean(lead.last_name)].filter(Boolean).join(\" \") ||\n  null;\n\nif (!externalId) {\n  throw new Error(\"Missing external_id for lead deduplication\");\n}\n\nif (!email && !fullName && !lead.company_name) {\n  throw new Error(\"Lead must contain at least email, name, or company_name\");\n}\n\nreturn [\n  {\n    json: {\n      run_id: eventId,\n      event_id: eventId,\n      external_id: externalId,\n      event_source: clean(input.event_source || lead.source) || \"website_form\",\n\n      lead_name: fullName,\n      lead_email: email,\n      lead_phone: clean(lead.phone),\n      lead_source: clean(input.event_source || lead.source) || \"website_form\",\n\n      company_name: clean(lead.company_name),\n      company_domain: clean(lead.company_domain),\n      website_url: clean(lead.website_url),\n      job_title: clean(lead.job_title),\n      message: clean(lead.message),\n      budget: clean(lead.budget),\n      timeline: clean(lead.timeline),\n      country: clean(lead.country),\n\n      normalized_lead: lead\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "3aa785c4-cf1e-47a4-8d61-f9ca25a0ef67",
+      "name": "Normalize Deduplication Input"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "d4fc72c6-e58a-44ee-a956-504c81784082",
+              "leftValue": "={{ $('Normalize Deduplication Input').item.json.lead_email }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        672,
+        0
+      ],
+      "id": "1e348f99-f315-435a-89a9-5ffddd872873",
+      "name": "Has Email?"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO public.leads (\n    external_id,\n    event_id,\n    lead_name,\n    lead_email,\n    lead_phone,\n    lead_source,\n    status\n)\nVALUES (\n    $1,\n    $2,\n    $3,\n    $4,\n    $5,\n    $6,\n    'new'\n)\nON CONFLICT (lead_email)\nDO UPDATE SET\n    lead_name = COALESCE(EXCLUDED.lead_name, public.leads.lead_name),\n    lead_phone = COALESCE(EXCLUDED.lead_phone, public.leads.lead_phone),\n    lead_source = EXCLUDED.lead_source,\n    event_id = EXCLUDED.event_id,\n    updated_at = NOW()\nRETURNING\n    internal_id,\n    external_id,\n    event_id,\n    lead_name,\n    lead_email,\n    lead_phone,\n    lead_source,\n    status,\n    created_at,\n    updated_at;",
+        "options": {
+          "queryReplacement": "={{[  $('Normalize Deduplication Input').item.json.external_id,  $('Normalize Deduplication Input').item.json.event_id,  $('Normalize Deduplication Input').item.json.lead_name,  $('Normalize Deduplication Input').item.json.lead_email,  $('Normalize Deduplication Input').item.json.lead_phone,  $('Normalize Deduplication Input').item.json.lead_source]}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        896,
+        -96
+      ],
+      "id": "e70d5f6e-0ed0-44e7-86de-6f60011ddfcb",
+      "name": "Upsert Lead By Email"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO public.leads (\n    external_id,\n    event_id,\n    lead_name,\n    lead_email,\n    lead_phone,\n    lead_source,\n    status\n)\nVALUES (\n    $1,\n    $2,\n    $3,\n    $4,\n    $5,\n    $6,\n    'new'\n)\nON CONFLICT (external_id)\nDO UPDATE SET\n    lead_name = COALESCE(EXCLUDED.lead_name, public.leads.lead_name),\n    lead_email = COALESCE(EXCLUDED.lead_email, public.leads.lead_email),\n    lead_phone = COALESCE(EXCLUDED.lead_phone, public.leads.lead_phone),\n    lead_source = EXCLUDED.lead_source,\n    event_id = EXCLUDED.event_id,\n    updated_at = NOW()\nRETURNING\n    internal_id,\n    external_id,\n    event_id,\n    lead_name,\n    lead_email,\n    lead_phone,\n    lead_source,\n    status,\n    created_at,\n    updated_at;",
+        "options": {
+          "queryReplacement": "={{[  $json.external_id,  $json.event_id,  $json.lead_name,  $json.lead_email,  $json.lead_phone,  $json.lead_source]}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        896,
+        96
+      ],
+      "id": "8319a445-6f87-45f7-a523-6c466c9ece4d",
+      "name": "Upsert Lead By External ID"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1120,
+        0
+      ],
+      "id": "4f2bc4d1-bd62-4751-8050-489aa080c248",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "const leadRow = $input.first().json;\nconst original = $('Normalize Deduplication Input').first().json;\n\nconst deduplication = {\n  lead_id: leadRow.internal_id,\n  event_id: original.event_id,\n  external_id: leadRow.external_id,\n  lead_email: leadRow.lead_email,\n  lead_name: leadRow.lead_name,\n  dedupe_key_used: original.lead_email ? \"lead_email\" : \"external_id\",\n  lead_status: leadRow.status\n};\n\nreturn [\n  {\n    json: {\n      ...original,\n\n      lead_id: leadRow.internal_id,\n      lead_row: leadRow,\n      deduplication\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        0
+      ],
+      "id": "31729e3e-7f8f-4826-baa2-3f38e8f96373",
+      "name": "Build Deduplication Result"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.raw_events\nSET payload =\n        payload\n        || jsonb_build_object(\n            'lead_id', $2::integer,\n            'deduplication', $3::jsonb\n        ),\n    processing_status = 'lead_resolved',\n    updated_at = NOW()\nWHERE internal_id = $1\nRETURNING\n    internal_id,\n    external_id,\n    processing_status,\n    payload;",
+        "options": {
+          "queryReplacement": "={{[  $json.event_id,  $json.lead_id,  JSON.stringify($json.deduplication)]}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1568,
+        0
+      ],
+      "id": "f87f78e9-b1a4-4c52-b842-c456c438dce0",
+      "name": "Update Raw Event With Lead"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO public.workflow_logs (\n    event_id,\n    lead_id,\n    step_name,\n    status,\n    wf_message,\n    workflow_name\n)\nVALUES (\n    $1,\n    $2,\n    'lead deduplication completed',\n    'success',\n    $3,\n    '02 - Lead Deduplication Resolver'\n)\nRETURNING internal_id;",
+        "options": {
+          "queryReplacement": "={{[  $('Build Deduplication Result').first().json.event_id,  $('Build Deduplication Result').first().json.lead_id,  `Lead resolved using ${$('Build Deduplication Result').first().json.deduplication.dedupe_key_used}`]}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1792,
+        0
+      ],
+      "id": "84853900-8533-4c56-8df3-7ac7ae9fdf5c",
+      "name": "Log Deduplication Step"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $('Build Deduplication Result').first().json;\n\nreturn [\n  {\n    json: {\n      run_id: data.run_id,\n      event_id: data.event_id,\n      external_id: data.external_id,\n      event_source: data.event_source,\n\n      lead_id: data.lead_id,\n      lead_name: data.lead_row.lead_name,\n      lead_email: data.lead_row.lead_email,\n      lead_phone: data.lead_row.lead_phone,\n      lead_source: data.lead_row.lead_source,\n\n      company_name: data.company_name,\n      company_domain: data.company_domain,\n      website_url: data.website_url,\n      job_title: data.job_title,\n      message: data.message,\n      budget: data.budget,\n      timeline: data.timeline,\n      country: data.country,\n\n      normalized_lead: data.normalized_lead,\n      deduplication: data.deduplication\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2016,
+        0
+      ],
+      "id": "25e50b0b-4fe3-48ae-98ca-73d0bbe40a68",
+      "name": "Prepare Enrichment Input"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "3jCscA1T9tg8MEYf",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/3jCscA1T9tg8MEYf",
+          "cachedResultName": "03 — Company Enrichment"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        2240,
+        0
+      ],
+      "id": "8821f6c5-6a1d-4b84-9b87-18f26e5ad68a",
+      "name": "Call '03 — Company Enrichment'"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.raw_events\nSET last_execution_id = $2,\n    last_workflow_name = $3,\n    updated_at = NOW()\nWHERE internal_id = $1\nRETURNING internal_id;",
+        "options": {
+          "queryReplacement": "={{[  $json.event_id || $json.run_id,  $execution.id,  $workflow.name]}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        448,
+        0
+      ],
+      "id": "68cf51d5-17f6-42b2-aef8-19e3842f9b3b",
+      "name": "Register Execution"
+    }
+  ],
+  "pinData": {
+    "When Executed by Another Workflow": [
+      {
+        "json": {
+          "run_id": 33,
+          "event_id": 33,
+          "external_id": "website_form:demo_real_lead_004",
+          "event_source": "website_form",
+          "processing_status": "processing",
+          "normalized_lead": {
+            "email": "laura.schmidt@example.com",
+            "phone": "+49 89 555 0142",
+            "budget": "20000+",
+            "source": "website_form",
+            "country": "Germany",
+            "message": "We want to automate lead routing and CRM follow-up creation. Right now inbound leads from paid campaigns are reviewed manually, enriched by the sales operations team, and assigned to account executives in spreadsheets before being updated in CRM. We need a workflow that deduplicates leads, scores them, assigns priority, creates follow-up tasks, and alerts the right team.",
+            "timeline": "ASAP",
+            "full_name": "Laura Schmidt",
+            "job_title": "Head of Revenue Operations",
+            "last_name": "Schmidt",
+            "first_name": "Laura",
+            "external_id": "website_form:demo_real_lead_004",
+            "raw_payload": {
+              "email": "laura.schmidt@example.com",
+              "phone": "+49 89 555 0142",
+              "budget": "20000+",
+              "source": "website_form",
+              "country": "Germany",
+              "message": "We want to automate lead routing and CRM follow-up creation. Right now inbound leads from paid campaigns are reviewed manually, enriched by the sales operations team, and assigned to account executives in spreadsheets before being updated in CRM. We need a workflow that deduplicates leads, scores them, assigns priority, creates follow-up tasks, and alerts the right team.",
+              "website": "https://www.salesforce.com",
+              "timeline": "ASAP",
+              "full_name": "Laura Schmidt",
+              "job_title": "Head of Revenue Operations",
+              "last_name": "Schmidt",
+              "first_name": "Laura",
+              "utm_medium": "paid_social",
+              "utm_source": "linkedin",
+              "company_name": "Salesforce",
+              "utm_campaign": "revops_automation_case",
+              "company_domain": "salesforce.com",
+              "source_event_id": "demo_real_lead_004",
+              "preferred_contact_method": "email"
+            },
+            "website_url": "https://www.salesforce.com",
+            "company_name": "Salesforce",
+            "company_domain": "salesforce.com",
+            "source_event_id": "demo_real_lead_004"
+          }
+        }
+      }
+    ]
+  },
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Normalize Deduplication Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Deduplication Input": {
+      "main": [
+        [
+          {
+            "node": "Register Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Email?": {
+      "main": [
+        [
+          {
+            "node": "Upsert Lead By Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Upsert Lead By External ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Lead By Email": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Lead By External ID": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Build Deduplication Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Deduplication Result": {
+      "main": [
+        [
+          {
+            "node": "Update Raw Event With Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Raw Event With Lead": {
+      "main": [
+        [
+          {
+            "node": "Log Deduplication Step",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Deduplication Step": {
+      "main": [
+        [
+          {
+            "node": "Prepare Enrichment Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Enrichment Input": {
+      "main": [
+        [
+          {
+            "node": "Call '03 — Company Enrichment'",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Register Execution": {
+      "main": [
+        [
+          {
+            "node": "Has Email?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "N6a97QDbnRTmFz4k",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "f2ec2e8b-c223-487c-93ec-e9bc74fd0595",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "49a09db7efa01a7c7119f7127498f0870c70db8b6ad3f8ad75f8f2f312ddc0ad"
+  },
+  "id": "1MXVH2lqI9bjgGs8",
+  "tags": []
+}

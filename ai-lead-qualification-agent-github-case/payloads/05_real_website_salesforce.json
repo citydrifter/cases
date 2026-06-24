@@ -1,0 +1,21 @@
+{
+  "source_event_id": "demo_real_lead_004",
+  "source": "website_form",
+  "first_name": "Laura",
+  "last_name": "Schmidt",
+  "full_name": "Laura Schmidt",
+  "email": "laura.schmidt@example.com",
+  "phone": "+49 89 555 0142",
+  "job_title": "Head of Revenue Operations",
+  "company_name": "Salesforce",
+  "company_domain": "salesforce.com",
+  "website": "https://www.salesforce.com",
+  "message": "We want to automate lead routing and CRM follow-up creation. Right now inbound leads from paid campaigns are reviewed manually, enriched by the sales operations team, and assigned to account executives in spreadsheets before being updated in CRM. We need a workflow that deduplicates leads, scores them, assigns priority, creates follow-up tasks, and alerts the right team.",
+  "budget": "20000+",
+  "timeline": "ASAP",
+  "country": "Germany",
+  "preferred_contact_method": "email",
+  "utm_source": "linkedin",
+  "utm_medium": "paid_social",
+  "utm_campaign": "revops_automation_case"
+}

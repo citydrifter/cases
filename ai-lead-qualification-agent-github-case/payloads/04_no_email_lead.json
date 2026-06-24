@@ -1,0 +1,17 @@
+{
+  "source_event_id": "demo_real_lead_004_no_email",
+  "source": "manual_upload",
+  "first_name": "Sofia",
+  "last_name": "Klein",
+  "full_name": "Sofia Klein",
+  "email": "",
+  "phone": "+31 20 555 0198",
+  "job_title": "Head of Customer Operations",
+  "company_name": "Zendesk",
+  "company_domain": "zendesk.com",
+  "website": "https://www.zendesk.com",
+  "message": "We want an AI workflow for inbound support triage. It should classify tickets, detect urgency, draft replies, and escalate high-priority customer issues.",
+  "budget": "5000-10000",
+  "timeline": "Next month",
+  "country": "Netherlands"
+}

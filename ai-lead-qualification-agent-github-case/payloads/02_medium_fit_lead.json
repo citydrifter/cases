@@ -1,0 +1,17 @@
+{
+  "source_event_id": "demo_real_lead_002",
+  "source": "website_form",
+  "first_name": "Marco",
+  "last_name": "Rossi",
+  "full_name": "Marco Rossi",
+  "email": "marco.rossi@example.com",
+  "phone": "",
+  "job_title": "Project Coordinator",
+  "company_name": "Notion",
+  "company_domain": "notion.so",
+  "website": "https://www.notion.so",
+  "message": "We are exploring ways to reduce manual reporting work. Our team collects updates from different departments and prepares weekly summaries.",
+  "budget": "",
+  "timeline": "No fixed deadline yet",
+  "country": "Italy"
+}

@@ -1,0 +1,623 @@
+{
+  "name": "04 - AI Lead Scorer",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "53b9ac0b-31c0-474a-8b1f-b883ad577286",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json || {};\n\nlet normalizedLead = input.normalized_lead || {};\nlet enrichment = input.enrichment || {};\nlet deduplication = input.deduplication || {};\n\nif (typeof normalizedLead === \"string\") normalizedLead = JSON.parse(normalizedLead);\nif (typeof enrichment === \"string\") enrichment = JSON.parse(enrichment);\nif (typeof deduplication === \"string\") deduplication = JSON.parse(deduplication);\n\nfunction clean(value) {\n  if (value === undefined || value === null) return null;\n  const text = String(value).trim();\n  return text.length ? text : null;\n}\n\nconst eventId = Number(input.event_id || input.run_id);\nconst leadId = Number(input.lead_id);\n\nif (!eventId || Number.isNaN(eventId)) {\n  throw new Error(\"Missing valid event_id/run_id\");\n}\n\nif (!leadId || Number.isNaN(leadId)) {\n  throw new Error(\"Missing valid lead_id\");\n}\n\nif (!enrichment || typeof enrichment !== \"object\") {\n  throw new Error(\"Missing enrichment object from Workflow 03\");\n}\n\nconst scoringContext = {\n  lead: {\n    lead_id: leadId,\n    lead_name: clean(input.lead_name),\n    lead_email: clean(input.lead_email),\n    lead_phone: clean(input.lead_phone),\n    lead_source: clean(input.lead_source || input.event_source),\n    job_title: clean(input.job_title),\n    message: clean(input.message),\n    budget: clean(input.budget),\n    timeline: clean(input.timeline),\n    country: clean(input.country)\n  },\n\n  company: {\n    company_name: clean(input.company_name || enrichment.company?.company_name),\n    company_domain: clean(input.company_domain || enrichment.company?.company_domain),\n    website_url: clean(input.website_url || enrichment.company?.website_url),\n    industry: clean(enrichment.company?.industry),\n    company_size_estimate: clean(enrichment.company?.company_size_estimate),\n    business_model: clean(enrichment.company?.business_model)\n  },\n\n  enrichment: {\n    person: enrichment.person || {},\n    company: enrichment.company || {},\n    intent: enrichment.intent || {},\n    routing_context: enrichment.routing_context || {},\n    metadata: enrichment.metadata || {}\n  },\n\n  deduplication,\n\n  source: {\n    event_id: eventId,\n    external_id: clean(input.external_id),\n    event_source: clean(input.event_source)\n  }\n};\n\nreturn [\n  {\n    json: {\n      run_id: eventId,\n      event_id: eventId,\n      external_id: clean(input.external_id),\n      event_source: clean(input.event_source) || \"website_form\",\n\n      lead_id: leadId,\n      lead_name: clean(input.lead_name),\n      lead_email: clean(input.lead_email),\n      lead_phone: clean(input.lead_phone),\n      lead_source: clean(input.lead_source || input.event_source),\n\n      company_name: clean(input.company_name || enrichment.company?.company_name),\n      company_domain: clean(input.company_domain || enrichment.company?.company_domain),\n      website_url: clean(input.website_url || enrichment.company?.website_url),\n\n      job_title: clean(input.job_title || enrichment.person?.job_title),\n      message: clean(input.message),\n      budget: clean(input.budget || enrichment.intent?.budget_signal),\n      timeline: clean(input.timeline || enrichment.intent?.timeline_signal),\n      country: clean(input.country || enrichment.company?.country),\n\n      normalized_lead: normalizedLead,\n      deduplication,\n      enrichment,\n\n      scoring_context: scoringContext,\n      scoring_context_json: JSON.stringify(scoringContext)\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "5b516046-b6dd-4509-bd6b-022446dd1e6b",
+      "name": "Normalize Scoring Input"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\nconst prompt = `\nScore this inbound B2B lead for an AI automation / operations automation service.\n\nReturn ONLY valid raw JSON.\nDo not use markdown.\nDo not use code fences.\nDo not explain outside JSON.\n\nScoring rules:\n- lead_score must be an integer from 0 to 100.\n- High fit: 75-100.\n- Medium fit: 45-74.\n- Low fit: 0-44.\n- Prioritize leads with:\n  - clear operational pain;\n  - specific automation use case;\n  - business urgency;\n  - budget;\n  - timeline;\n  - decision-maker or strong operator role;\n  - company context that matches B2B automation work.\n- Penalize leads with:\n  - missing contact data;\n  - vague message;\n  - unclear company;\n  - no business problem;\n  - student/research/vendor/spam intent;\n  - no automation use case.\n- Do not invent facts.\n- Use missing_information for data needed before a sales call.\n\nINPUT_JSON:\n${data.scoring_context_json}\n\nReturn exactly this JSON schema:\n\n{\n  \"lead_score\": 0,\n  \"fit_level\": \"Low\",\n  \"priority\": \"Low\",\n  \"routing_team\": \"Sales\",\n  \"lead_status\": \"qualified\",\n  \"recommended_next_action\": \"\",\n  \"reasoning_summary\": \"\",\n  \"positive_signals\": [],\n  \"negative_signals\": [],\n  \"missing_information\": [],\n  \"suggested_owner_role\": \"\",\n  \"follow_up_angle\": \"\",\n  \"qualification_notes\": \"\"\n}\n`;\n\nreturn [\n  {\n    json: {\n      ...data,\n      final_scoring_prompt: prompt\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ],
+      "id": "87e97cd8-9c6f-484e-a927-1851e434a4b4",
+      "name": "Build Scoring Prompt"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('Build Scoring Prompt').item.json.final_scoring_prompt }}",
+        "options": {
+          "systemMessage": "You are a senior B2B sales operations analyst for an AI automation consulting business.\n\nReturn raw JSON only.\nDo not use markdown.\nDo not use code fences.\n\nAllowed fit_level values:\n- Low\n- Medium\n- High\n\nAllowed priority values:\n- Low\n- Medium\n- High\n- Urgent\n\nAllowed routing_team values:\n- Sales\n- RevOps\n- Automation Consulting\n- Support\n- Nurture\n\nAllowed lead_status values:\n- qualified\n- nurture\n- disqualified\n\nUse qualified only when the lead has a real business use case and enough contact/company information.\nUse nurture when fit is possible but information is incomplete or urgency is weak.\nUse disqualified for spam, irrelevant, students, vendors, or no business use case.\n\nDo not invent facts.\nBase scoring only on the provided payload and enrichment."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        896,
+        0
+      ],
+      "id": "934dac26-f425-4c31-a7c3-a7b8068177ca",
+      "name": "AI Lead Scorer"
+    },
+    {
+      "parameters": {
+        "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        976,
+        224
+      ],
+      "id": "d47b22ef-2e33-4e50-9fca-02eadcd3b3d1",
+      "name": "Groq Chat Model"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw =\n  $json.output ||\n  $json.text ||\n  $json.content ||\n  $json.message ||\n  JSON.stringify($json);\n\nconst input = $('Build Scoring Prompt').first().json;\n\nfunction cleanText(value) {\n  if (!value) return \"\";\n  return String(value).trim();\n}\n\nfunction normalizeArray(value) {\n  if (!value) return [];\n  if (Array.isArray(value)) return value.map(v => String(v).trim()).filter(Boolean);\n  return [String(value).trim()].filter(Boolean);\n}\n\nfunction normalizeValue(value, allowed, fallback) {\n  const clean = cleanText(value);\n  return allowed.includes(clean) ? clean : fallback;\n}\n\nfunction parseJsonFromText(value) {\n  let text = String(value || \"\").trim();\n\n  text = text\n    .replace(/^```json/i, \"\")\n    .replace(/^```/i, \"\")\n    .replace(/```$/i, \"\")\n    .trim();\n\n  const first = text.indexOf(\"{\");\n  const last = text.lastIndexOf(\"}\");\n\n  if (first !== -1 && last !== -1) {\n    text = text.slice(first, last + 1);\n  }\n\n  return JSON.parse(text);\n}\n\nconst parsed = parseJsonFromText(raw);\n\nlet score = Number(parsed.lead_score);\nif (Number.isNaN(score)) score = 0;\nscore = Math.max(0, Math.min(100, Math.round(score)));\n\nlet fitLevel;\nif (score >= 75) {\n  fitLevel = \"High\";\n} else if (score >= 45) {\n  fitLevel = \"Medium\";\n} else {\n  fitLevel = \"Low\";\n}\n\nconst allowedPriorities = [\"Low\", \"Medium\", \"High\", \"Urgent\"];\nconst allowedRoutingTeams = [\"Sales\", \"RevOps\", \"Automation Consulting\", \"Support\", \"Nurture\"];\nconst allowedStatuses = [\"qualified\", \"nurture\", \"disqualified\"];\n\nlet defaultPriority = \"Low\";\nif (score >= 85) defaultPriority = \"Urgent\";\nelse if (score >= 75) defaultPriority = \"High\";\nelse if (score >= 45) defaultPriority = \"Medium\";\n\nlet defaultStatus = \"disqualified\";\nif (score >= 75) defaultStatus = \"qualified\";\nelse if (score >= 45) defaultStatus = \"nurture\";\n\nconst positiveSignals = normalizeArray(parsed.positive_signals);\nconst negativeSignals = normalizeArray(parsed.negative_signals);\nconst missingInformation = normalizeArray(parsed.missing_information);\n\nconst leadScore = {\n  lead_score: score,\n  fit_level: fitLevel,\n\n  priority: normalizeValue(\n    parsed.priority,\n    allowedPriorities,\n    defaultPriority\n  ),\n\n  routing_team: normalizeValue(\n    parsed.routing_team,\n    allowedRoutingTeams,\n    fitLevel === \"High\" ? \"Automation Consulting\" : \"Nurture\"\n  ),\n\n  lead_status: normalizeValue(\n    parsed.lead_status,\n    allowedStatuses,\n    defaultStatus\n  ),\n\n  recommended_next_action: cleanText(parsed.recommended_next_action),\n  reasoning_summary: cleanText(parsed.reasoning_summary),\n\n  positive_signals: positiveSignals,\n  negative_signals: negativeSignals,\n  missing_information: missingInformation,\n\n  suggested_owner_role: cleanText(parsed.suggested_owner_role),\n  follow_up_angle: cleanText(parsed.follow_up_angle),\n  qualification_notes: cleanText(parsed.qualification_notes),\n\n  scored_at: new Date().toISOString()\n};\n\n// Extra deterministic safety rules.\nif (!input.lead_email && !input.lead_phone) {\n  leadScore.lead_status = \"nurture\";\n  leadScore.priority = leadScore.priority === \"Urgent\" ? \"High\" : leadScore.priority;\n  leadScore.missing_information.push(\"Contact email or phone is missing.\");\n}\n\nif (!input.message && leadScore.lead_score > 70) {\n  leadScore.lead_score = 70;\n  leadScore.fit_level = \"Medium\";\n  leadScore.lead_status = \"nurture\";\n  leadScore.missing_information.push(\"Lead message or business problem is missing.\");\n}\n\nif (\n  leadScore.negative_signals.some(signal =>\n    signal.toLowerCase().includes(\"spam\") ||\n    signal.toLowerCase().includes(\"student\") ||\n    signal.toLowerCase().includes(\"vendor\")\n  )\n) {\n  leadScore.lead_score = Math.min(leadScore.lead_score, 30);\n  leadScore.fit_level = \"Low\";\n  leadScore.priority = \"Low\";\n  leadScore.lead_status = \"disqualified\";\n}\n\nreturn [\n  {\n    json: {\n      ...input,\n      lead_score: leadScore\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1248,
+        0
+      ],
+      "id": "4f38c595-686d-4220-b27a-4a7f4d04613f",
+      "name": "Parse Lead Score"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.raw_events\nSET payload =\n        COALESCE(payload, '{}'::jsonb)\n        || jsonb_build_object(\n            'lead_score', $2::jsonb\n        ),\n    processing_status = 'lead_scored',\n    updated_at = NOW()\nWHERE internal_id = $1\nRETURNING\n    internal_id,\n    external_id,\n    processing_status,\n    payload;",
+        "options": {
+          "queryReplacement": "={{[  $json.event_id,  JSON.stringify($json.lead_score)]}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1472,
+        0
+      ],
+      "id": "6eaf2d4d-dea1-4b84-ab33-92105230b012",
+      "name": "Update Raw Event With Score"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.leads\nSET status = $2,\n    updated_at = NOW()\nWHERE internal_id = $1\nRETURNING\n    internal_id,\n    lead_name,\n    lead_email,\n    status;",
+        "options": {
+          "queryReplacement": "={{[  $('Parse Lead Score').item.json.lead_id,  $('Parse Lead Score').item.json.lead_score.lead_status]}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1696,
+        0
+      ],
+      "id": "0ef0b319-e26b-4e82-81bc-5f52dd564d53",
+      "name": "Update Lead Status"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO public.workflow_logs (\n    event_id,\n    lead_id,\n    step_name,\n    status,\n    wf_message,\n    workflow_name\n)\nVALUES (\n    $1,\n    $2,\n    'lead scoring completed',\n    'success',\n    $3,\n    '04 - AI Lead Scorer'\n)\nRETURNING internal_id;",
+        "options": {
+          "queryReplacement": "={{[  $('Parse Lead Score').first().json.event_id,  $('Parse Lead Score').first().json.lead_id,  'Lead scored '    + $('Parse Lead Score').first().json.lead_score.lead_score    + ' / 100, fit: '    + $('Parse Lead Score').first().json.lead_score.fit_level    + ', status: '    + $('Parse Lead Score').first().json.lead_score.lead_status]}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1920,
+        0
+      ],
+      "id": "945c3bbe-678e-4dc5-b181-32a19519fb94",
+      "name": "Log Scoring Step",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $('Parse Lead Score').first().json;\n\nreturn [\n  {\n    json: {\n      run_id: data.run_id,\n      event_id: data.event_id,\n      external_id: data.external_id,\n      event_source: data.event_source,\n\n      lead_id: data.lead_id,\n      lead_name: data.lead_name,\n      lead_email: data.lead_email,\n      lead_phone: data.lead_phone,\n      lead_source: data.lead_source,\n\n      company_name: data.company_name,\n      company_domain: data.company_domain,\n      website_url: data.website_url,\n\n      job_title: data.job_title,\n      message: data.message,\n      budget: data.budget,\n      timeline: data.timeline,\n      country: data.country,\n\n      normalized_lead: data.normalized_lead,\n      deduplication: data.deduplication,\n      enrichment: data.enrichment,\n      lead_score: data.lead_score\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2144,
+        0
+      ],
+      "id": "0d00994d-2ca2-46e7-ae8e-b43404b79c29",
+      "name": "Prepare CRM Writer Input"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "u2YVOwjBaLyTqJNO",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/u2YVOwjBaLyTqJNO",
+          "cachedResultName": "05 - CRM Writer"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        2368,
+        0
+      ],
+      "id": "e6520268-ee6f-4a5e-ad52-b2909bdf0c16",
+      "name": "Call '05 - CRM Writer'"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.raw_events\nSET last_execution_id = $2,\n    last_workflow_name = $3,\n    updated_at = NOW()\nWHERE internal_id = $1\nRETURNING internal_id;",
+        "options": {
+          "queryReplacement": "={{[  $('Normalize Scoring Input').item.json.event_id || $('Normalize Scoring Input').item.json.run_id,  $execution.id,  $workflow.name]}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        672,
+        0
+      ],
+      "id": "09a52237-6d24-4438-a037-de97015a2a69",
+      "name": "Register Execution"
+    }
+  ],
+  "pinData": {
+    "When Executed by Another Workflow": [
+      {
+        "json": {
+          "run_id": 31,
+          "event_id": 31,
+          "external_id": "website_form:demo_real_lead_001",
+          "event_source": "website_form",
+          "lead_id": 41,
+          "lead_name": "Anna Meyer",
+          "lead_email": "anna.meyer@maersk.com",
+          "lead_phone": "+49 30 12345678",
+          "lead_source": "website_form",
+          "company_name": "Maersk",
+          "company_domain": "maersk.com",
+          "website_url": "https://www.maersk.com",
+          "job_title": "Operations Manager",
+          "message": "We want to automate order intake, shipment status updates, and routing between operations teams. New requests arrive by email and are copied manually into spreadsheets. We need validation, task assignment, and automatic customer updates.",
+          "budget": "10000-20000",
+          "timeline": "This quarter",
+          "country": "Germany",
+          "normalized_lead": {
+            "email": "anna.meyer@maersk.com",
+            "phone": "+49 30 12345678",
+            "budget": "10000-20000",
+            "source": "website_form",
+            "country": "Germany",
+            "message": "We want to automate order intake, shipment status updates, and routing between operations teams. New requests arrive by email and are copied manually into spreadsheets. We need validation, task assignment, and automatic customer updates.",
+            "timeline": "This quarter",
+            "full_name": "Anna Meyer",
+            "job_title": "Operations Manager",
+            "last_name": "Meyer",
+            "first_name": "Anna",
+            "external_id": "website_form:demo_real_lead_001",
+            "raw_payload": {
+              "email": "anna.meyer@maersk.com",
+              "phone": "+49 30 12345678",
+              "budget": "10000-20000",
+              "source": "website_form",
+              "country": "Germany",
+              "message": "We want to automate order intake, shipment status updates, and routing between operations teams. New requests arrive by email and are copied manually into spreadsheets. We need validation, task assignment, and automatic customer updates.",
+              "website": "https://www.maersk.com",
+              "timeline": "This quarter",
+              "full_name": "Anna Meyer",
+              "job_title": "Operations Manager",
+              "last_name": "Meyer",
+              "first_name": "Anna",
+              "company_name": "Maersk",
+              "company_domain": "maersk.com",
+              "source_event_id": "demo_real_lead_001"
+            },
+            "website_url": "https://www.maersk.com",
+            "company_name": "Maersk",
+            "company_domain": "maersk.com",
+            "source_event_id": "demo_real_lead_001"
+          },
+          "deduplication": {
+            "lead_id": 41,
+            "event_id": 31,
+            "external_id": "website_form:demo_real_lead_001",
+            "lead_email": "anna.meyer@maersk.com",
+            "lead_name": "Anna Meyer",
+            "dedupe_key_used": "lead_email",
+            "lead_status": "new"
+          },
+          "enrichment": {
+            "person": {
+              "job_title": "Operations Manager",
+              "department_estimate": "Operations",
+              "seniority_estimate": "senior",
+              "decision_maker_likelihood": "medium"
+            },
+            "company": {
+              "company_name": "Maersk",
+              "company_domain": "maersk.com",
+              "website_url": "https://www.maersk.com",
+              "industry": "Logistics and Supply Chain",
+              "company_size_estimate": "large",
+              "country": "Denmark",
+              "business_model": "B2B"
+            },
+            "intent": {
+              "detected_use_case": "Automation of order intake and operations workflow",
+              "automation_pain_points": [
+                "Manual data entry into spreadsheets",
+                "Lack of validation and task assignment automation",
+                "Inefficient customer updates"
+              ],
+              "buying_intent_signals": [
+                "Specific budget mentioned",
+                "Clear timeline for implementation"
+              ],
+              "urgency_signals": [
+                "Timeline: this quarter"
+              ],
+              "budget_signal": "10000-20000",
+              "timeline_signal": "This quarter"
+            },
+            "routing_context": {
+              "positive_fit_signals": [
+                "Clear automation pain points",
+                "Specific use case mentioned"
+              ],
+              "negative_fit_signals": [],
+              "recommended_routing_context": "Qualified for sales outreach",
+              "missing_information": [],
+              "enrichment_confidence": "medium"
+            },
+            "metadata": {
+              "website_fetched": true,
+              "website_text_length": 3210,
+              "enriched_at": "2026-06-24T18:32:19.952Z"
+            }
+          }
+        }
+      }
+    ],
+    "Parse Lead Score": [
+      {
+        "json": {
+          "run_id": 17,
+          "event_id": 17,
+          "external_id": "website_form:test_lead_001",
+          "event_source": "website_form",
+          "lead_id": 1,
+          "lead_name": "Anna Meyer",
+          "lead_email": "anna@acme.com",
+          "lead_phone": "+49123456789",
+          "lead_source": "website_form",
+          "company_name": "Acme Logistics",
+          "company_domain": "acme.com",
+          "website_url": "https://acme.com",
+          "job_title": "Operations Manager",
+          "message": "We want to automate order intake, customer updates, and routing between teams.",
+          "budget": "5000-10000",
+          "timeline": "This quarter",
+          "country": "Germany",
+          "normalized_lead": {},
+          "deduplication": {},
+          "enrichment": {
+            "person": {
+              "job_title": "Operations Manager",
+              "department_estimate": "Operations",
+              "seniority_estimate": "Manager",
+              "decision_maker_likelihood": "medium"
+            },
+            "company": {
+              "company_name": "Acme Logistics",
+              "company_domain": "acme.com",
+              "website_url": "https://acme.com",
+              "industry": "Logistics",
+              "company_size_estimate": "",
+              "country": "Germany",
+              "business_model": "B2B logistics operations"
+            },
+            "intent": {
+              "detected_use_case": "order intake automation",
+              "automation_pain_points": [
+                "manual order intake",
+                "customer updates",
+                "routing between teams"
+              ],
+              "buying_intent_signals": [
+                "clear business pain",
+                "budget provided",
+                "timeline provided"
+              ],
+              "urgency_signals": [
+                "this quarter"
+              ],
+              "budget_signal": "5000-10000",
+              "timeline_signal": "This quarter"
+            },
+            "routing_context": {
+              "positive_fit_signals": [
+                "operations automation request"
+              ],
+              "negative_fit_signals": [],
+              "recommended_routing_context": "Route to automation consulting.",
+              "missing_information": [],
+              "enrichment_confidence": "medium"
+            }
+          },
+          "scoring_context": {
+            "lead": {
+              "lead_id": 4,
+              "lead_name": "Anna Meyer",
+              "lead_email": "anna@acme.com",
+              "lead_phone": "+49123456789",
+              "lead_source": "website_form",
+              "job_title": "Operations Manager",
+              "message": "We want to automate order intake, customer updates, and routing between teams.",
+              "budget": "5000-10000",
+              "timeline": "This quarter",
+              "country": "Germany"
+            },
+            "company": {
+              "company_name": "Acme Logistics",
+              "company_domain": "acme.com",
+              "website_url": "https://acme.com",
+              "industry": "Logistics",
+              "company_size_estimate": null,
+              "business_model": "B2B logistics operations"
+            },
+            "enrichment": {
+              "person": {
+                "job_title": "Operations Manager",
+                "department_estimate": "Operations",
+                "seniority_estimate": "Manager",
+                "decision_maker_likelihood": "medium"
+              },
+              "company": {
+                "company_name": "Acme Logistics",
+                "company_domain": "acme.com",
+                "website_url": "https://acme.com",
+                "industry": "Logistics",
+                "company_size_estimate": "",
+                "country": "Germany",
+                "business_model": "B2B logistics operations"
+              },
+              "intent": {
+                "detected_use_case": "order intake automation",
+                "automation_pain_points": [
+                  "manual order intake",
+                  "customer updates",
+                  "routing between teams"
+                ],
+                "buying_intent_signals": [
+                  "clear business pain",
+                  "budget provided",
+                  "timeline provided"
+                ],
+                "urgency_signals": [
+                  "this quarter"
+                ],
+                "budget_signal": "5000-10000",
+                "timeline_signal": "This quarter"
+              },
+              "routing_context": {
+                "positive_fit_signals": [
+                  "operations automation request"
+                ],
+                "negative_fit_signals": [],
+                "recommended_routing_context": "Route to automation consulting.",
+                "missing_information": [],
+                "enrichment_confidence": "medium"
+              },
+              "metadata": {}
+            },
+            "deduplication": {},
+            "source": {
+              "event_id": 17,
+              "external_id": "website_form:test_lead_001",
+              "event_source": "website_form"
+            }
+          },
+          "scoring_context_json": "{\"lead\":{\"lead_id\":4,\"lead_name\":\"Anna Meyer\",\"lead_email\":\"anna@acme.com\",\"lead_phone\":\"+49123456789\",\"lead_source\":\"website_form\",\"job_title\":\"Operations Manager\",\"message\":\"We want to automate order intake, customer updates, and routing between teams.\",\"budget\":\"5000-10000\",\"timeline\":\"This quarter\",\"country\":\"Germany\"},\"company\":{\"company_name\":\"Acme Logistics\",\"company_domain\":\"acme.com\",\"website_url\":\"https://acme.com\",\"industry\":\"Logistics\",\"company_size_estimate\":null,\"business_model\":\"B2B logistics operations\"},\"enrichment\":{\"person\":{\"job_title\":\"Operations Manager\",\"department_estimate\":\"Operations\",\"seniority_estimate\":\"Manager\",\"decision_maker_likelihood\":\"medium\"},\"company\":{\"company_name\":\"Acme Logistics\",\"company_domain\":\"acme.com\",\"website_url\":\"https://acme.com\",\"industry\":\"Logistics\",\"company_size_estimate\":\"\",\"country\":\"Germany\",\"business_model\":\"B2B logistics operations\"},\"intent\":{\"detected_use_case\":\"order intake automation\",\"automation_pain_points\":[\"manual order intake\",\"customer updates\",\"routing between teams\"],\"buying_intent_signals\":[\"clear business pain\",\"budget provided\",\"timeline provided\"],\"urgency_signals\":[\"this quarter\"],\"budget_signal\":\"5000-10000\",\"timeline_signal\":\"This quarter\"},\"routing_context\":{\"positive_fit_signals\":[\"operations automation request\"],\"negative_fit_signals\":[],\"recommended_routing_context\":\"Route to automation consulting.\",\"missing_information\":[],\"enrichment_confidence\":\"medium\"},\"metadata\":{}},\"deduplication\":{},\"source\":{\"event_id\":17,\"external_id\":\"website_form:test_lead_001\",\"event_source\":\"website_form\"}}",
+          "final_scoring_prompt": "\nScore this inbound B2B lead for an AI automation / operations automation service.\n\nReturn ONLY valid raw JSON.\nDo not use markdown.\nDo not use code fences.\nDo not explain outside JSON.\n\nScoring rules:\n- lead_score must be an integer from 0 to 100.\n- High fit: 75-100.\n- Medium fit: 45-74.\n- Low fit: 0-44.\n- Prioritize leads with:\n  - clear operational pain;\n  - specific automation use case;\n  - business urgency;\n  - budget;\n  - timeline;\n  - decision-maker or strong operator role;\n  - company context that matches B2B automation work.\n- Penalize leads with:\n  - missing contact data;\n  - vague message;\n  - unclear company;\n  - no business problem;\n  - student/research/vendor/spam intent;\n  - no automation use case.\n- Do not invent facts.\n- Use missing_information for data needed before a sales call.\n\nINPUT_JSON:\n{\"lead\":{\"lead_id\":4,\"lead_name\":\"Anna Meyer\",\"lead_email\":\"anna@acme.com\",\"lead_phone\":\"+49123456789\",\"lead_source\":\"website_form\",\"job_title\":\"Operations Manager\",\"message\":\"We want to automate order intake, customer updates, and routing between teams.\",\"budget\":\"5000-10000\",\"timeline\":\"This quarter\",\"country\":\"Germany\"},\"company\":{\"company_name\":\"Acme Logistics\",\"company_domain\":\"acme.com\",\"website_url\":\"https://acme.com\",\"industry\":\"Logistics\",\"company_size_estimate\":null,\"business_model\":\"B2B logistics operations\"},\"enrichment\":{\"person\":{\"job_title\":\"Operations Manager\",\"department_estimate\":\"Operations\",\"seniority_estimate\":\"Manager\",\"decision_maker_likelihood\":\"medium\"},\"company\":{\"company_name\":\"Acme Logistics\",\"company_domain\":\"acme.com\",\"website_url\":\"https://acme.com\",\"industry\":\"Logistics\",\"company_size_estimate\":\"\",\"country\":\"Germany\",\"business_model\":\"B2B logistics operations\"},\"intent\":{\"detected_use_case\":\"order intake automation\",\"automation_pain_points\":[\"manual order intake\",\"customer updates\",\"routing between teams\"],\"buying_intent_signals\":[\"clear business pain\",\"budget provided\",\"timeline provided\"],\"urgency_signals\":[\"this quarter\"],\"budget_signal\":\"5000-10000\",\"timeline_signal\":\"This quarter\"},\"routing_context\":{\"positive_fit_signals\":[\"operations automation request\"],\"negative_fit_signals\":[],\"recommended_routing_context\":\"Route to automation consulting.\",\"missing_information\":[],\"enrichment_confidence\":\"medium\"},\"metadata\":{}},\"deduplication\":{},\"source\":{\"event_id\":17,\"external_id\":\"website_form:test_lead_001\",\"event_source\":\"website_form\"}}\n\nReturn exactly this JSON schema:\n\n{\n  \"lead_score\": 0,\n  \"fit_level\": \"Low\",\n  \"priority\": \"Low\",\n  \"routing_team\": \"Sales\",\n  \"lead_status\": \"qualified\",\n  \"recommended_next_action\": \"\",\n  \"reasoning_summary\": \"\",\n  \"positive_signals\": [],\n  \"negative_signals\": [],\n  \"missing_information\": [],\n  \"suggested_owner_role\": \"\",\n  \"follow_up_angle\": \"\",\n  \"qualification_notes\": \"\"\n}\n",
+          "lead_score": {
+            "lead_score": 88,
+            "fit_level": "High",
+            "priority": "Medium",
+            "routing_team": "Automation Consulting",
+            "lead_status": "qualified",
+            "recommended_next_action": "Schedule a demo or consultation to discuss automation requirements",
+            "reasoning_summary": "The lead has a clear operational pain, specific automation use case, business urgency, budget, and timeline. The company context matches B2B automation work.",
+            "positive_signals": [
+              "clear operational pain",
+              "specific automation use case",
+              "business urgency",
+              "budget provided",
+              "timeline provided",
+              "decision-maker or strong operator role",
+              "company context that matches B2B automation work"
+            ],
+            "negative_signals": [],
+            "missing_information": [],
+            "suggested_owner_role": "Automation Consultant",
+            "follow_up_angle": "Discuss automation requirements and provide a customized solution",
+            "qualification_notes": "The lead has a high fit level and is likely to be a qualified opportunity.",
+            "scored_at": "2026-06-24T17:24:43.150Z"
+          }
+        }
+      }
+    ]
+  },
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Normalize Scoring Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Scoring Input": {
+      "main": [
+        [
+          {
+            "node": "Build Scoring Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Scoring Prompt": {
+      "main": [
+        [
+          {
+            "node": "Register Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Lead Scorer",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Lead Scorer": {
+      "main": [
+        [
+          {
+            "node": "Parse Lead Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Lead Score": {
+      "main": [
+        [
+          {
+            "node": "Update Raw Event With Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Raw Event With Score": {
+      "main": [
+        [
+          {
+            "node": "Update Lead Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Lead Status": {
+      "main": [
+        [
+          {
+            "node": "Log Scoring Step",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Scoring Step": {
+      "main": [
+        [
+          {
+            "node": "Prepare CRM Writer Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare CRM Writer Input": {
+      "main": [
+        [
+          {
+            "node": "Call '05 - CRM Writer'",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Register Execution": {
+      "main": [
+        [
+          {
+            "node": "AI Lead Scorer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "N6a97QDbnRTmFz4k",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "657c5a19-3c6f-47ee-b4f2-86e5ee1329f1",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "49a09db7efa01a7c7119f7127498f0870c70db8b6ad3f8ad75f8f2f312ddc0ad"
+  },
+  "id": "mR2TwU2J7XIgPG69",
+  "tags": []
+}

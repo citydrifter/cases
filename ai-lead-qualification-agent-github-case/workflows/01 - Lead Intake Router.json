@@ -1,0 +1,236 @@
+{
+  "name": "01 - Lead Intake Router",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "f4cd58cf-adf8-445e-83f9-316482369b74",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "bcfaa3a9-0747-4ac4-bf42-3e28f0a312bb",
+      "name": "Webhook",
+      "webhookId": "f4cd58cf-adf8-445e-83f9-316482369b74"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json || {};\n\nfunction clean(value) {\n  if (value === undefined || value === null) return null;\n  const text = String(value).trim();\n  return text.length ? text : null;\n}\n\nfunction lower(value) {\n  const text = clean(value);\n  return text ? text.toLowerCase() : null;\n}\n\nfunction normalizeDomain(value) {\n  const text = clean(value);\n  if (!text) return null;\n\n  return text\n    .replace(/^https?:\\/\\//i, \"\")\n    .replace(/^www\\./i, \"\")\n    .split(\"/\")[0]\n    .toLowerCase();\n}\n\nfunction extractDomain(email, explicitDomain, website) {\n  if (explicitDomain) return normalizeDomain(explicitDomain);\n  if (website) return normalizeDomain(website);\n\n  if (email && email.includes(\"@\")) {\n    return email.split(\"@\")[1].toLowerCase();\n  }\n\n  return null;\n}\n\nconst source = clean(input.source) || \"website_form\";\nconst sourceEventId = clean(input.source_event_id || input.id);\n\nif (!sourceEventId) {\n  throw new Error(\"Missing source_event_id. Provide a stable external ID for idempotency.\");\n}\n\nconst email = lower(input.email);\nconst companyDomain = extractDomain(email, input.company_domain || input.domain, input.website);\n\nconst fullName =\n  clean(input.full_name || input.name) ||\n  [clean(input.first_name || input.firstName), clean(input.last_name || input.lastName)]\n    .filter(Boolean)\n    .join(\" \") ||\n  null;\n\nconst normalizedLead = {\n  source,\n  source_event_id: sourceEventId,\n  external_id: `${source}:${sourceEventId}`,\n\n  first_name: clean(input.first_name || input.firstName),\n  last_name: clean(input.last_name || input.lastName),\n  full_name: fullName,\n  email,\n  phone: clean(input.phone),\n  job_title: clean(input.job_title || input.title),\n\n  company_name: clean(input.company_name || input.company),\n  company_domain: companyDomain,\n  website_url: clean(input.website || (companyDomain ? `https://${companyDomain}` : null)),\n\n  message: clean(input.message || input.description || input.notes),\n  budget: clean(input.budget),\n  timeline: clean(input.timeline),\n  country: clean(input.country),\n\n  raw_payload: input\n};\n\nif (!normalizedLead.email && !normalizedLead.company_domain && !normalizedLead.company_name) {\n  throw new Error(\"Lead must have at least email, company domain, or company name.\");\n}\n\nreturn [\n  {\n    json: {\n      external_id: normalizedLead.external_id,\n      event_source: source,\n      normalized_lead: normalizedLead,\n      raw_payload: input\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "804c3b31-e6f2-4a0d-b787-d640fe01c16d",
+      "name": "Normalize Lead Payload"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO raw_events (\n    external_id,\n    payload,\n    event_source,\n    processing_status\n)\nVALUES (\n    $1,\n    $2::jsonb,\n    $3,\n    'processing'\n)\nON CONFLICT (external_id)\nDO UPDATE SET\n    payload = EXCLUDED.payload,\n    event_source = EXCLUDED.event_source,\n    processing_status = 'processing',\n    updated_at = NOW()\nRETURNING\n    internal_id,\n    external_id,\n    payload,\n    event_source,\n    processing_status,\n    retry_count;",
+        "options": {
+          "queryReplacement": "={{[  $json.external_id,  JSON.stringify({    raw_payload: $json.raw_payload,    normalized_lead: $json.normalized_lead  }),  $json.event_source]}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        448,
+        0
+      ],
+      "id": "ff5ac772-3875-4508-bb73-e0db89393447",
+      "name": "Reserve Raw Event"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO workflow_logs (\n    event_id,\n    step_name,\n    status,\n    wf_message,\n    workflow_name\n)\nVALUES (\n    $1,\n    'lead intake received',\n    'success',\n    $2,\n    '01 - Lead Intake Router'\n)\nRETURNING internal_id;",
+        "options": {
+          "queryReplacement": "={{[  $('Reserve Raw Event').first().json.internal_id,  'Lead intake event reserved and normalized']}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        896,
+        0
+      ],
+      "id": "43eb9e31-d610-47ef-95c8-e91a9d7f85e8",
+      "name": "Log Intake Step"
+    },
+    {
+      "parameters": {
+        "jsCode": "const event = $('Reserve Raw Event').first().json;\n\nlet payload = event.payload || {};\n\nif (typeof payload === \"string\") {\n  payload = JSON.parse(payload);\n}\n\nconst lead = payload.normalized_lead || {};\n\nreturn [\n  {\n    json: {\n      run_id: event.internal_id,\n      event_id: event.internal_id,\n      external_id: event.external_id,\n      event_source: event.event_source,\n      processing_status: event.processing_status,\n      normalized_lead: lead\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        0
+      ],
+      "id": "cb695221-af27-4c1c-b600-aedaec785cba",
+      "name": "Prepare Deduplication Input"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "1MXVH2lqI9bjgGs8",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/1MXVH2lqI9bjgGs8",
+          "cachedResultName": "02 - Lead Deduplication Resolver"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1344,
+        0
+      ],
+      "id": "bc54b45e-ce08-4511-a28c-0a90bdc4d6a4",
+      "name": "Call '02 - Lead Deduplication Resolver'"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.raw_events\nSET last_execution_id = $2,\n    last_workflow_name = $3,\n    updated_at = NOW()\nWHERE internal_id = $1\nRETURNING internal_id;",
+        "options": {
+          "queryReplacement": "={{[  $json.event_id || $json.run_id,  $execution.id,  $workflow.name]}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        672,
+        0
+      ],
+      "id": "9f4cfeba-2cf4-4f0c-a6e2-fa2e4e6f0275",
+      "name": "Register Execution"
+    }
+  ],
+  "pinData": {
+    "Webhook": [
+      {
+        "json": {
+          "source_event_id": "demo_real_lead_004",
+          "source": "website_form",
+          "first_name": "Laura",
+          "last_name": "Schmidt",
+          "full_name": "Laura Schmidt",
+          "email": "laura.schmidt@example.com",
+          "phone": "+49 89 555 0142",
+          "job_title": "Head of Revenue Operations",
+          "company_name": "Salesforce",
+          "company_domain": "salesforce.com",
+          "website": "https://www.salesforce.com",
+          "message": "We want to automate lead routing and CRM follow-up creation. Right now inbound leads from paid campaigns are reviewed manually, enriched by the sales operations team, and assigned to account executives in spreadsheets before being updated in CRM. We need a workflow that deduplicates leads, scores them, assigns priority, creates follow-up tasks, and alerts the right team.",
+          "budget": "20000+",
+          "timeline": "ASAP",
+          "country": "Germany",
+          "preferred_contact_method": "email",
+          "utm_source": "linkedin",
+          "utm_medium": "paid_social",
+          "utm_campaign": "revops_automation_case"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Lead Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Lead Payload": {
+      "main": [
+        [
+          {
+            "node": "Reserve Raw Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reserve Raw Event": {
+      "main": [
+        [
+          {
+            "node": "Register Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Intake Step": {
+      "main": [
+        [
+          {
+            "node": "Prepare Deduplication Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Deduplication Input": {
+      "main": [
+        [
+          {
+            "node": "Call '02 - Lead Deduplication Resolver'",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Register Execution": {
+      "main": [
+        [
+          {
+            "node": "Log Intake Step",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "N6a97QDbnRTmFz4k",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "17aee550-1a6c-4424-a804-dd374448c05d",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "49a09db7efa01a7c7119f7127498f0870c70db8b6ad3f8ad75f8f2f312ddc0ad"
+  },
+  "id": "oVhWuux78D62gSeA",
+  "tags": []
+}

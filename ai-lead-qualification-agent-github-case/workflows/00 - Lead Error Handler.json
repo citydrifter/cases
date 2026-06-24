@@ -1,0 +1,191 @@
+{
+  "name": "00 - Lead Error Handler",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "1de28b0f-969c-4af1-ac07-a51f33aa5ede",
+      "name": "Error Trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json || {};\n\nconst execution = input.execution || {};\nconst workflow = input.workflow || {};\nconst error = execution.error || {};\n\nfunction clean(value, max = 3500) {\n  if (value === undefined || value === null) return \"\";\n  return String(value).slice(0, max);\n}\n\nconst workflowName = workflow.name || \"Unknown workflow\";\nconst nodeName = execution.lastNodeExecuted || \"Unknown node\";\nconst message = clean(error.message || \"Unknown error\");\n\nconst telegramBaseMessage = [\n  \"🚨 Lead workflow failed\",\n  \"\",\n  `Workflow: ${workflowName}`,\n  `Node: ${nodeName}`,\n  `Execution: ${execution.id || \"unknown\"}`,\n  execution.url ? `URL: ${execution.url}` : \"\",\n  execution.retryOf ? `Retry of: ${execution.retryOf}` : \"\",\n  execution.mode ? `Mode: ${execution.mode}` : \"\",\n  \"\",\n  `Error: ${message}`\n].filter(Boolean).join(\"\\n\");\n\nreturn [\n  {\n    json: {\n      workflow_id: workflow.id || null,\n      workflow_name: workflowName,\n      execution_id: execution.id || null,\n      execution_url: execution.url || null,\n      retry_of: execution.retryOf || null,\n      execution_mode: execution.mode || null,\n\n      node_name: nodeName,\n      severity: \"critical\",\n      event_type: \"ERROR\",\n      error_message: message,\n      error_stack: clean(error.stack, 7000),\n\n      telegram_base_message: telegramBaseMessage,\n      raw_payload: input\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "7b146c12-3bcd-40d5-add7-07964c6f6e60",
+      "name": "Normalize Error Payload"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH exact_event AS (\n    SELECT\n        internal_id,\n        external_id,\n        payload,\n        processing_status\n    FROM public.raw_events\n    WHERE last_execution_id = $1\n    ORDER BY updated_at DESC\n    LIMIT 1\n),\n\nfallback_event AS (\n    SELECT\n        internal_id,\n        external_id,\n        payload,\n        processing_status\n    FROM public.raw_events\n    WHERE processing_status NOT IN ('completed', 'failed')\n    ORDER BY updated_at DESC\n    LIMIT 1\n),\n\nselected_event AS (\n    SELECT * FROM exact_event\n    UNION ALL\n    SELECT * FROM fallback_event\n    WHERE NOT EXISTS (SELECT 1 FROM exact_event)\n    LIMIT 1\n),\n\nlead_candidate AS (\n    SELECT\n        CASE\n            WHEN payload ->> 'lead_id' ~ '^[0-9]+$'\n            THEN (payload ->> 'lead_id')::integer\n\n            WHEN payload #>> '{deduplication,lead_id}' ~ '^[0-9]+$'\n            THEN (payload #>> '{deduplication,lead_id}')::integer\n\n            ELSE NULL\n        END AS lead_id\n    FROM selected_event\n)\n\nSELECT\n    (SELECT internal_id FROM selected_event) AS event_id,\n    (SELECT external_id FROM selected_event) AS external_id,\n    (SELECT processing_status FROM selected_event) AS processing_status,\n    (SELECT payload FROM selected_event) AS event_payload,\n    (\n        SELECT l.internal_id\n        FROM lead_candidate c\n        JOIN public.leads l\n            ON l.internal_id = c.lead_id\n        LIMIT 1\n    ) AS lead_id;",
+        "options": {
+          "queryReplacement": "={{[  $('Normalize Error Payload').first().json.execution_id]}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        448,
+        0
+      ],
+      "id": "e20a0b30-b597-4c07-a9d6-b697d45f40f7",
+      "name": "Resolve Event Context"
+    },
+    {
+      "parameters": {
+        "jsCode": "const error = $('Normalize Error Payload').first().json;\nconst resolved = $input.first().json || {};\n\nconst eventId = resolved.event_id || null;\nconst leadId = resolved.lead_id || null;\n\nconst telegramMessage = [\n  error.telegram_base_message,\n  \"\",\n  eventId ? `Event ID: ${eventId}` : \"Event ID: not found\",\n  leadId ? `Lead ID: ${leadId}` : \"Lead ID: not found\",\n  resolved.external_id ? `External ID: ${resolved.external_id}` : \"\",\n  resolved.processing_status ? `Current status: ${resolved.processing_status}` : \"\"\n].filter(Boolean).join(\"\\n\");\n\nreturn [\n  {\n    json: {\n      ...error,\n\n      event_id: eventId,\n      lead_id: leadId,\n      external_id: resolved.external_id || null,\n      processing_status: resolved.processing_status || null,\n      event_payload: resolved.event_payload || null,\n\n      telegram_message: telegramMessage\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ],
+      "id": "ae4f7372-8783-42db-945f-151d12ad8bd2",
+      "name": "Build Error Context"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH upd AS (\n    UPDATE public.raw_events\n    SET processing_status = 'failed',\n        error_message = $2,\n        last_failed_workflow = $3,\n        last_failed_node = $4,\n        last_error_at = NOW(),\n        error_count = COALESCE(error_count, 0) + 1,\n        updated_at = NOW()\n    WHERE internal_id = $1\n    RETURNING\n        internal_id,\n        external_id,\n        processing_status,\n        error_count\n)\nSELECT\n    COALESCE((SELECT internal_id FROM upd), $1) AS event_id,\n    COALESCE((SELECT external_id FROM upd), NULL) AS external_id,\n    COALESCE((SELECT processing_status FROM upd), 'not_updated') AS processing_status,\n    COALESCE((SELECT error_count FROM upd), 0) AS error_count;",
+        "options": {
+          "queryReplacement": "={{[  $json.event_id,  $json.error_message,  $json.workflow_name,  $json.node_name]}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        896,
+        0
+      ],
+      "id": "1c40da69-d8e3-48e2-a87b-5e1b2592e120",
+      "name": "Update Raw Event Error State"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH valid_event AS (\n    SELECT internal_id\n    FROM public.raw_events\n    WHERE internal_id = $1\n    LIMIT 1\n),\n\nvalid_lead AS (\n    SELECT internal_id\n    FROM public.leads\n    WHERE internal_id = $2\n    LIMIT 1\n),\n\nins AS (\n    INSERT INTO public.workflow_logs (\n        event_id,\n        lead_id,\n        step_name,\n        status,\n        wf_message,\n        workflow_name\n    )\n    VALUES (\n        (SELECT internal_id FROM valid_event),\n        (SELECT internal_id FROM valid_lead),\n        'workflow error',\n        'failed',\n        $3,\n        $4\n    )\n    RETURNING internal_id\n)\n\nSELECT\n    COALESCE((SELECT internal_id FROM ins), NULL) AS workflow_log_id;",
+        "options": {
+          "queryReplacement": "={{[  $('Build Error Context').first().json.event_id,  $('Build Error Context').first().json.lead_id,  $('Build Error Context').first().json.error_message,  $('Build Error Context').first().json.workflow_name]}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1104,
+        0
+      ],
+      "id": "4126c6a7-10b7-4ce6-b887-df619497ad4d",
+      "name": "Insert Workflow Error Log"
+    },
+    {
+      "parameters": {
+        "chatId": "7745531696",
+        "text": "={{ $('Build Error Context').first().json.telegram_message }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1312,
+        0
+      ],
+      "id": "836411d9-70b4-4167-b120-000229e6d9dd",
+      "name": "Send Telegram Error Alert",
+      "webhookId": "edfc1a80-b67e-4284-94ad-bcb9cff2c2ef"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalize Error Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Error Payload": {
+      "main": [
+        [
+          {
+            "node": "Resolve Event Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Event Context": {
+      "main": [
+        [
+          {
+            "node": "Build Error Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Error Context": {
+      "main": [
+        [
+          {
+            "node": "Update Raw Event Error State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Raw Event Error State": {
+      "main": [
+        [
+          {
+            "node": "Insert Workflow Error Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Workflow Error Log": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Error Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "9cde9f67-acc0-475f-9531-4a185fd73b20",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "49a09db7efa01a7c7119f7127498f0870c70db8b6ad3f8ad75f8f2f312ddc0ad"
+  },
+  "id": "N6a97QDbnRTmFz4k",
+  "tags": []
+}

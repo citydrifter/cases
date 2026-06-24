@@ -1,0 +1,490 @@
+{
+  "name": "03 - Lead Context Enrichment",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        -16
+      ],
+      "id": "3f4707e2-0d7d-42a9-ac72-65fa88defde8",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json || {};\n\nlet normalizedLead = input.normalized_lead || {};\nlet deduplication = input.deduplication || {};\n\nif (typeof normalizedLead === \"string\") {\n  normalizedLead = JSON.parse(normalizedLead);\n}\n\nif (typeof deduplication === \"string\") {\n  deduplication = JSON.parse(deduplication);\n}\n\nfunction clean(value) {\n  if (value === undefined || value === null) return null;\n  const text = String(value).trim();\n  return text.length ? text : null;\n}\n\nfunction normalizeDomain(value) {\n  const text = clean(value);\n  if (!text) return null;\n\n  return text\n    .replace(/^https?:\\/\\//i, \"\")\n    .replace(/^www\\./i, \"\")\n    .split(\"/\")[0]\n    .toLowerCase();\n}\n\nconst eventId = Number(input.event_id || input.run_id);\nconst leadId = Number(input.lead_id);\n\nif (!eventId || Number.isNaN(eventId)) {\n  throw new Error(\"Missing valid event_id/run_id\");\n}\n\nif (!leadId || Number.isNaN(leadId)) {\n  throw new Error(\"Missing valid lead_id from Workflow 02\");\n}\n\nconst leadEmail = clean(input.lead_email || normalizedLead.email);\n\nconst companyDomain = normalizeDomain(\n  input.company_domain ||\n  normalizedLead.company_domain ||\n  (\n    leadEmail && leadEmail.includes(\"@\")\n      ? leadEmail.split(\"@\")[1]\n      : null\n  )\n);\n\nconst websiteUrl =\n  clean(input.website_url || normalizedLead.website_url) ||\n  (companyDomain ? `https://${companyDomain}` : null);\n\nconst leadName =\n  clean(input.lead_name || normalizedLead.full_name) ||\n  [\n    clean(normalizedLead.first_name),\n    clean(normalizedLead.last_name)\n  ].filter(Boolean).join(\" \") ||\n  null;\n\nreturn [\n  {\n    json: {\n      run_id: eventId,\n      event_id: eventId,\n      external_id: clean(input.external_id || normalizedLead.external_id),\n      event_source: clean(input.event_source || normalizedLead.source) || \"website_form\",\n\n      lead_id: leadId,\n      lead_name: leadName,\n      lead_email: leadEmail,\n      lead_phone: clean(input.lead_phone || normalizedLead.phone),\n      lead_source: clean(input.lead_source || input.event_source || normalizedLead.source) || \"website_form\",\n\n      company_name: clean(input.company_name || normalizedLead.company_name),\n      company_domain: companyDomain,\n      website_url: websiteUrl,\n\n      job_title: clean(input.job_title || normalizedLead.job_title),\n      message: clean(input.message || normalizedLead.message),\n      budget: clean(input.budget || normalizedLead.budget),\n      timeline: clean(input.timeline || normalizedLead.timeline),\n      country: clean(input.country || normalizedLead.country),\n\n      normalized_lead: normalizedLead,\n      deduplication\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        -16
+      ],
+      "id": "486c2349-3066-4dc8-9e11-bb5faad2cfae",
+      "name": "Normalize Enrichment Input"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "365eea40-54e7-4179-b5df-14748500ae42",
+              "leftValue": "={{ $('Normalize Enrichment Input').item.json.website_url }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        672,
+        -16
+      ],
+      "id": "e040a7f3-73d1-4507-885a-574e286df704",
+      "name": "Has Website URL?"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Normalize Enrichment Input').item.json.website_url }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 10000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        896,
+        -112
+      ],
+      "id": "65e6b3c7-7faf-4f6e-9cc6-02ab3828d1b3",
+      "name": "Fetch Company Website"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $('Normalize Enrichment Input').first().json;\n\nreturn [\n  {\n    json: {\n      ...input,\n      website_fetch_status: \"not_available\",\n      website_text: \"\"\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        80
+      ],
+      "id": "6b39994a-3946-43f4-9827-684ec723e147",
+      "name": "No Website Placeholder"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=={{\n`Analyze this inbound B2B lead context.\n\nReturn ONLY valid raw JSON.\nDo not use markdown.\nDo not use code fences.\nDo not explain outside JSON.\n\nYour job:\n- enrich the person/lead context;\n- enrich the company context;\n- infer request intent from the lead message;\n- identify automation pain points;\n- identify buying intent signals;\n- identify negative fit signals;\n- identify missing information needed before sales qualification;\n- prepare routing context for the lead scoring workflow.\n\nDo not invent facts.\nIf something cannot be inferred, use an empty string or add a concise item to missing_information.\n\nINPUT_JSON:\n${$json.enrichment_prompt}\n\nReturn exactly this JSON schema:\n\n{\n  \"person\": {\n    \"job_title\": \"\",\n    \"department_estimate\": \"\",\n    \"seniority_estimate\": \"\",\n    \"decision_maker_likelihood\": \"low\"\n  },\n  \"company\": {\n    \"company_name\": \"\",\n    \"company_domain\": \"\",\n    \"website_url\": \"\",\n    \"industry\": \"\",\n    \"company_size_estimate\": \"\",\n    \"country\": \"\",\n    \"business_model\": \"\"\n  },\n  \"intent\": {\n    \"detected_use_case\": \"\",\n    \"automation_pain_points\": [],\n    \"buying_intent_signals\": [],\n    \"urgency_signals\": [],\n    \"budget_signal\": \"\",\n    \"timeline_signal\": \"\"\n  },\n  \"routing_context\": {\n    \"positive_fit_signals\": [],\n    \"negative_fit_signals\": [],\n    \"recommended_routing_context\": \"\",\n    \"missing_information\": [],\n    \"enrichment_confidence\": \"low\"\n  }\n}`\n}}",
+        "options": {
+          "systemMessage": "You are a B2B sales operations and automation consulting enrichment analyst.\n\nReturn raw JSON only.\n\nDo not use markdown.\nDo not wrap output in code fences.\nThe first character must be {.\nThe last character must be }.\n\nDo not invent facts.\nUse only the lead payload, domain, website text, message, job title, country, budget, and timeline.\n\nAllowed decision_maker_likelihood values:\n- low\n- medium\n- high\n\nAllowed enrichment_confidence values:\n- low\n- medium\n- high\n\nautomation_pain_points, buying_intent_signals, urgency_signals, positive_fit_signals, negative_fit_signals, and missing_information must always be arrays.\n\nIf evidence is weak, keep confidence low."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        1344,
+        -16
+      ],
+      "id": "6b154339-0fc1-4c54-9b0b-f78a766bc33c",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        1424,
+        208
+      ],
+      "id": "bd2dc963-3867-4e84-9d5a-e70df8610ed3",
+      "name": "Groq Chat Model"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.raw_events\nSET payload =\n        payload\n        || jsonb_build_object(\n            'lead_context_enrichment', $2::jsonb\n        ),\n    processing_status = 'lead_context_enriched',\n    updated_at = NOW()\nWHERE internal_id = $1\nRETURNING\n    internal_id,\n    external_id,\n    processing_status,\n    payload;",
+        "options": {
+          "queryReplacement": "={{\n[\n  $json.event_id,\n  JSON.stringify($json.enrichment)\n]\n}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1920,
+        -16
+      ],
+      "id": "4b0be00b-b9a2-49d2-b09a-12b4c29ab4a2",
+      "name": "Update Raw Event With Enrichment"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO public.workflow_logs (\n    event_id,\n    lead_id,\n    step_name,\n    status,\n    wf_message,\n    workflow_name\n)\nVALUES (\n    $1,\n    $2,\n    'lead context enrichment completed',\n    'success',\n    $3,\n    '03 - Lead Context Enrichment'\n)\nRETURNING internal_id;",
+        "options": {
+          "queryReplacement": "={{\n[\n  $('Parse Lead Context Enrichment').first().json.event_id,\n  $('Parse Lead Context Enrichment').first().json.lead_id,\n  'Lead context enriched with confidence: '\n    + $('Parse Lead Context Enrichment').first().json.enrichment.routing_context.enrichment_confidence\n]\n}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2144,
+        -16
+      ],
+      "id": "18175503-e7ba-4c9e-85b2-7fdcc6c5cceb",
+      "name": "Log Enrichment Step",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $('Parse Lead Context Enrichment').first().json;\n\nreturn [\n  {\n    json: {\n      run_id: data.run_id,\n      event_id: data.event_id,\n      external_id: data.external_id,\n      event_source: data.event_source,\n\n      lead_id: data.lead_id,\n      lead_name: data.lead_name,\n      lead_email: data.lead_email,\n      lead_phone: data.lead_phone,\n      lead_source: data.lead_source,\n\n      company_name: data.company_name,\n      company_domain: data.company_domain,\n      website_url: data.website_url,\n\n      job_title: data.job_title,\n      message: data.message,\n      budget: data.budget,\n      timeline: data.timeline,\n      country: data.country,\n\n      normalized_lead: data.normalized_lead,\n      deduplication: data.deduplication,\n      enrichment: data.enrichment\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2368,
+        -16
+      ],
+      "id": "6be314a7-46d8-40ca-b80c-066b2c21571c",
+      "name": "Prepare Lead Scoring Input"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw =\n  $json.output ||\n  $json.text ||\n  $json.content ||\n  $json.message ||\n  JSON.stringify($json);\n\nconst input = $('Build Lead Context').first().json;\n\nfunction cleanText(value) {\n  if (!value) return \"\";\n  return String(value).trim();\n}\n\nfunction normalizeArray(value) {\n  if (!value) return [];\n  if (Array.isArray(value)) {\n    return value.map(v => String(v).trim()).filter(Boolean);\n  }\n  return [String(value).trim()].filter(Boolean);\n}\n\nfunction normalizeValue(value, allowed, fallback) {\n  const clean = cleanText(value);\n  return allowed.includes(clean) ? clean : fallback;\n}\n\nfunction parseJsonFromText(value) {\n  let text = String(value || \"\").trim();\n\n  text = text\n    .replace(/^```json/i, \"\")\n    .replace(/^```/i, \"\")\n    .replace(/```$/i, \"\")\n    .trim();\n\n  const first = text.indexOf(\"{\");\n  const last = text.lastIndexOf(\"}\");\n\n  if (first !== -1 && last !== -1) {\n    text = text.slice(first, last + 1);\n  }\n\n  return JSON.parse(text);\n}\n\nconst parsed = parseJsonFromText(raw);\n\nconst enrichment = {\n  person: {\n    job_title: cleanText(parsed.person?.job_title || input.job_title),\n    department_estimate: cleanText(parsed.person?.department_estimate),\n    seniority_estimate: cleanText(parsed.person?.seniority_estimate),\n    decision_maker_likelihood: normalizeValue(\n      parsed.person?.decision_maker_likelihood,\n      [\"low\", \"medium\", \"high\"],\n      \"low\"\n    )\n  },\n\n  company: {\n    company_name: cleanText(parsed.company?.company_name || input.company_name),\n    company_domain: cleanText(parsed.company?.company_domain || input.company_domain),\n    website_url: cleanText(parsed.company?.website_url || input.website_url),\n    industry: cleanText(parsed.company?.industry),\n    company_size_estimate: cleanText(parsed.company?.company_size_estimate),\n    country: cleanText(parsed.company?.country || input.country),\n    business_model: cleanText(parsed.company?.business_model)\n  },\n\n  intent: {\n    detected_use_case: cleanText(parsed.intent?.detected_use_case),\n    automation_pain_points: normalizeArray(parsed.intent?.automation_pain_points),\n    buying_intent_signals: normalizeArray(parsed.intent?.buying_intent_signals),\n    urgency_signals: normalizeArray(parsed.intent?.urgency_signals),\n    budget_signal: cleanText(parsed.intent?.budget_signal || input.budget),\n    timeline_signal: cleanText(parsed.intent?.timeline_signal || input.timeline)\n  },\n\n  routing_context: {\n    positive_fit_signals: normalizeArray(parsed.routing_context?.positive_fit_signals),\n    negative_fit_signals: normalizeArray(parsed.routing_context?.negative_fit_signals),\n    recommended_routing_context: cleanText(parsed.routing_context?.recommended_routing_context),\n    missing_information: normalizeArray(parsed.routing_context?.missing_information),\n    enrichment_confidence: normalizeValue(\n      parsed.routing_context?.enrichment_confidence,\n      [\"low\", \"medium\", \"high\"],\n      \"low\"\n    )\n  },\n\n  metadata: {\n    website_fetched: Boolean(input.website_text),\n    website_text_length: String(input.website_text || \"\").length,\n    enriched_at: new Date().toISOString()\n  }\n};\n\nreturn [\n  {\n    json: {\n      ...input,\n      enrichment\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1696,
+        -16
+      ],
+      "id": "c6777549-8f40-473e-aaf3-4d61ce1e8ab5",
+      "name": "Parse Lead Context Enrichment"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $('Normalize Enrichment Input').first().json;\nconst current = $input.first().json || {};\n\nfunction clean(value) {\n  if (value === undefined || value === null) return \"\";\n  return String(value).trim();\n}\n\nfunction stripHtml(html) {\n  return clean(html)\n    .replace(/<script[\\s\\S]*?<\\/script>/gi, \" \")\n    .replace(/<style[\\s\\S]*?<\\/style>/gi, \" \")\n    .replace(/<noscript[\\s\\S]*?<\\/noscript>/gi, \" \")\n    .replace(/<[^>]+>/g, \" \")\n    .replace(/&nbsp;/g, \" \")\n    .replace(/&amp;/g, \"&\")\n    .replace(/&lt;/g, \"<\")\n    .replace(/&gt;/g, \">\")\n    .replace(/\\s+/g, \" \")\n    .trim();\n}\n\nlet websiteText = \"\";\n\nif (typeof current === \"string\") {\n  websiteText = stripHtml(current);\n} else if (current.body) {\n  websiteText = stripHtml(current.body);\n} else if (current.data) {\n  websiteText = stripHtml(current.data);\n} else if (current.website_text) {\n  websiteText = stripHtml(current.website_text);\n}\n\nif (websiteText.length > 6000) {\n  websiteText = websiteText.slice(0, 6000);\n}\n\nconst leadContext = {\n  person: {\n    lead_id: input.lead_id,\n    lead_name: input.lead_name,\n    lead_email: input.lead_email,\n    lead_phone: input.lead_phone,\n    job_title: input.job_title,\n    country: input.country,\n    source: input.lead_source\n  },\n\n  company: {\n    company_name: input.company_name,\n    company_domain: input.company_domain,\n    website_url: input.website_url\n  },\n\n  request: {\n    message: input.message,\n    budget: input.budget,\n    timeline: input.timeline\n  },\n\n  website: {\n    fetched: Boolean(websiteText),\n    text: websiteText\n  },\n\n  source: {\n    event_id: input.event_id,\n    external_id: input.external_id,\n    event_source: input.event_source\n  },\n\n  deduplication: input.deduplication || {}\n};\n\nreturn [\n  {\n    json: {\n      ...input,\n      website_text: websiteText,\n      lead_context: leadContext,\n      enrichment_prompt: JSON.stringify(leadContext)\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        -16
+      ],
+      "id": "4d65023e-3904-4b68-ba4a-992be16f2988",
+      "name": "Build Lead Context"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "mR2TwU2J7XIgPG69",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/mR2TwU2J7XIgPG69",
+          "cachedResultName": "04 - AI Lead Scorer"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        2592,
+        -16
+      ],
+      "id": "f0e3f6d8-124b-4719-b9ef-8d56d9d197a0",
+      "name": "Call '04 - AI Lead Scorer'"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.raw_events\nSET last_execution_id = $2,\n    last_workflow_name = $3,\n    updated_at = NOW()\nWHERE internal_id = $1\nRETURNING internal_id;",
+        "options": {
+          "queryReplacement": "={{[  $json.event_id || $json.run_id,  $execution.id,  $workflow.name]}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        448,
+        -16
+      ],
+      "id": "194feed9-cea8-4ce3-9a59-4eb44a2d6586",
+      "name": "Register Execution"
+    }
+  ],
+  "pinData": {
+    "When Executed by Another Workflow": [
+      {
+        "json": {
+          "run_id": 33,
+          "event_id": 33,
+          "external_id": "website_form:demo_real_lead_004",
+          "event_source": "website_form",
+          "lead_id": 44,
+          "lead_name": "Laura Schmidt",
+          "lead_email": "laura.schmidt@example.com",
+          "lead_phone": "+49 89 555 0142",
+          "lead_source": "website_form",
+          "company_name": "Salesforce",
+          "company_domain": "salesforce.com",
+          "website_url": "https://www.salesforce.com",
+          "job_title": "Head of Revenue Operations",
+          "message": "We want to automate lead routing and CRM follow-up creation. Right now inbound leads from paid campaigns are reviewed manually, enriched by the sales operations team, and assigned to account executives in spreadsheets before being updated in CRM. We need a workflow that deduplicates leads, scores them, assigns priority, creates follow-up tasks, and alerts the right team.",
+          "budget": "20000+",
+          "timeline": "ASAP",
+          "country": "Germany",
+          "normalized_lead": {
+            "email": "laura.schmidt@example.com",
+            "phone": "+49 89 555 0142",
+            "budget": "20000+",
+            "source": "website_form",
+            "country": "Germany",
+            "message": "We want to automate lead routing and CRM follow-up creation. Right now inbound leads from paid campaigns are reviewed manually, enriched by the sales operations team, and assigned to account executives in spreadsheets before being updated in CRM. We need a workflow that deduplicates leads, scores them, assigns priority, creates follow-up tasks, and alerts the right team.",
+            "timeline": "ASAP",
+            "full_name": "Laura Schmidt",
+            "job_title": "Head of Revenue Operations",
+            "last_name": "Schmidt",
+            "first_name": "Laura",
+            "external_id": "website_form:demo_real_lead_004",
+            "raw_payload": {
+              "email": "laura.schmidt@example.com",
+              "phone": "+49 89 555 0142",
+              "budget": "20000+",
+              "source": "website_form",
+              "country": "Germany",
+              "message": "We want to automate lead routing and CRM follow-up creation. Right now inbound leads from paid campaigns are reviewed manually, enriched by the sales operations team, and assigned to account executives in spreadsheets before being updated in CRM. We need a workflow that deduplicates leads, scores them, assigns priority, creates follow-up tasks, and alerts the right team.",
+              "website": "https://www.salesforce.com",
+              "timeline": "ASAP",
+              "full_name": "Laura Schmidt",
+              "job_title": "Head of Revenue Operations",
+              "last_name": "Schmidt",
+              "first_name": "Laura",
+              "utm_medium": "paid_social",
+              "utm_source": "linkedin",
+              "company_name": "Salesforce",
+              "utm_campaign": "revops_automation_case",
+              "company_domain": "salesforce.com",
+              "source_event_id": "demo_real_lead_004",
+              "preferred_contact_method": "email"
+            },
+            "website_url": "https://www.salesforce.com",
+            "company_name": "Salesforce",
+            "company_domain": "salesforce.com",
+            "source_event_id": "demo_real_lead_004"
+          },
+          "deduplication": {
+            "lead_id": 44,
+            "event_id": 33,
+            "external_id": "website_form:demo_real_lead_004",
+            "lead_email": "laura.schmidt@example.com",
+            "lead_name": "Laura Schmidt",
+            "dedupe_key_used": "lead_email",
+            "lead_status": "new"
+          }
+        }
+      }
+    ]
+  },
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Normalize Enrichment Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Enrichment Input": {
+      "main": [
+        [
+          {
+            "node": "Register Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Website URL?": {
+      "main": [
+        [
+          {
+            "node": "Fetch Company Website",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Website Placeholder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Company Website": {
+      "main": [
+        [
+          {
+            "node": "Build Lead Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Parse Lead Context Enrichment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Raw Event With Enrichment": {
+      "main": [
+        [
+          {
+            "node": "Log Enrichment Step",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Enrichment Step": {
+      "main": [
+        [
+          {
+            "node": "Prepare Lead Scoring Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Lead Scoring Input": {
+      "main": [
+        [
+          {
+            "node": "Call '04 - AI Lead Scorer'",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No Website Placeholder": {
+      "main": [
+        [
+          {
+            "node": "Build Lead Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Lead Context Enrichment": {
+      "main": [
+        [
+          {
+            "node": "Update Raw Event With Enrichment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Lead Context": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Register Execution": {
+      "main": [
+        [
+          {
+            "node": "Has Website URL?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "N6a97QDbnRTmFz4k",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "6cda9969-d8df-4f8b-aa87-bb1c57e88581",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "49a09db7efa01a7c7119f7127498f0870c70db8b6ad3f8ad75f8f2f312ddc0ad"
+  },
+  "id": "3jCscA1T9tg8MEYf",
+  "tags": []
+}

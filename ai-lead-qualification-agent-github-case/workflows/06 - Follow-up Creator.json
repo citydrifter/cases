@@ -1,0 +1,639 @@
+{
+  "name": "06 - Follow-up Creator",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        -144
+      ],
+      "id": "cdbe204d-c16a-4c2b-b321-3137f541c016",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json || {};\n\nlet enrichment = input.enrichment || {};\nlet leadScore = input.lead_score || {};\nlet crm = input.crm || {};\nlet crmSync = input.crm_sync || {};\n\nif (typeof enrichment === \"string\") enrichment = JSON.parse(enrichment);\nif (typeof leadScore === \"string\") leadScore = JSON.parse(leadScore);\nif (typeof crm === \"string\") crm = JSON.parse(crm);\nif (typeof crmSync === \"string\") crmSync = JSON.parse(crmSync);\n\nfunction clean(value) {\n  if (value === undefined || value === null) return null;\n  const text = String(value).trim();\n  return text.length ? text : null;\n}\n\nfunction normalizePriority(value) {\n  const text = clean(value);\n  const allowed = [\"Low\", \"Medium\", \"High\", \"Urgent\"];\n  return allowed.includes(text) ? text : \"Medium\";\n}\n\nfunction normalizeLeadStatus(value) {\n  const text = clean(value);\n  const allowed = [\"qualified\", \"nurture\", \"disqualified\"];\n  return allowed.includes(text) ? text : \"nurture\";\n}\n\nconst eventId = Number(input.event_id || input.run_id);\nconst leadId = Number(input.lead_id);\n\nif (!eventId || Number.isNaN(eventId)) {\n  throw new Error(\"Missing valid event_id/run_id\");\n}\n\nif (!leadId || Number.isNaN(leadId)) {\n  throw new Error(\"Missing valid lead_id\");\n}\n\nif (!leadScore || typeof leadScore !== \"object\") {\n  throw new Error(\"Missing lead_score object from Workflow 04\");\n}\n\nconst normalizedLeadScore = {\n  ...leadScore,\n  lead_score: Number(leadScore.lead_score || 0),\n  priority: normalizePriority(leadScore.priority),\n  lead_status: normalizeLeadStatus(leadScore.lead_status)\n};\n\nreturn [\n  {\n    json: {\n      run_id: eventId,\n      event_id: eventId,\n      external_id: clean(input.external_id),\n      event_source: clean(input.event_source) || \"website_form\",\n\n      lead_id: leadId,\n      lead_name: clean(input.lead_name),\n      lead_email: clean(input.lead_email),\n      lead_phone: clean(input.lead_phone),\n      lead_source: clean(input.lead_source || input.event_source),\n\n      company_name: clean(input.company_name),\n      company_domain: clean(input.company_domain),\n      website_url: clean(input.website_url),\n\n      job_title: clean(input.job_title),\n      message: clean(input.message),\n      budget: clean(input.budget),\n      timeline: clean(input.timeline),\n      country: clean(input.country),\n\n      enrichment,\n      lead_score: normalizedLeadScore,\n      crm,\n      crm_sync: crmSync,\n      crm_lead_page_id: clean(input.crm_lead_page_id || crmSync.crm_lead_page_id)\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        -144
+      ],
+      "id": "bd128414-becd-4670-a958-458375ec3de9",
+      "name": "Normalize Follow-up Input"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\nconst context = {\n  lead: {\n    lead_name: data.lead_name,\n    lead_email: data.lead_email,\n    lead_phone: data.lead_phone,\n    job_title: data.job_title,\n    source: data.lead_source\n  },\n  company: {\n    company_name: data.company_name,\n    company_domain: data.company_domain,\n    website_url: data.website_url,\n    country: data.country\n  },\n  request: {\n    message: data.message,\n    budget: data.budget,\n    timeline: data.timeline\n  },\n  enrichment: data.enrichment,\n  score: data.lead_score,\n  crm: {\n    crm_lead_page_id: data.crm_lead_page_id,\n    crm_status: data.crm_sync?.crm_status,\n    crm_priority: data.crm_sync?.crm_priority\n  }\n};\n\nconst prompt = `\nCreate a sales follow-up plan for this scored inbound B2B automation lead.\n\nReturn ONLY valid raw JSON.\nDo not use markdown.\nDo not use code fences.\nDo not explain outside JSON.\n\nRules:\n- If lead_status is qualified, create a sales follow-up task.\n- If lead_status is nurture, create a softer follow-up task.\n- If lead_status is disqualified, do not create a sales task unless there is a clear reason.\n- The follow-up must be specific to the lead's stated problem.\n- Include a concise email/message draft.\n- Include task title, task description, priority, due date offset, and notification text.\n- Do not invent facts.\n\nINPUT_JSON:\n${JSON.stringify(context)}\n\nReturn exactly this JSON schema:\n\n{\n  \"should_create_follow_up\": true,\n  \"follow_up_type\": \"sales_discovery\",\n  \"task_title\": \"\",\n  \"task_description\": \"\",\n  \"task_priority\": \"Medium\",\n  \"due_in_days\": 1,\n  \"owner_role\": \"\",\n  \"draft_message\": \"\",\n  \"telegram_summary\": \"\",\n  \"reason\": \"\"\n}\n`;\n\nreturn [\n  {\n    json: {\n      ...data,\n      follow_up_context: context,\n      follow_up_prompt: prompt\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        -144
+      ],
+      "id": "b87cd7d0-4246-4ac4-8b38-614ca8a81c78",
+      "name": "Build Follow-up Prompt"
+    },
+    {
+      "parameters": {
+        "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        976,
+        80
+      ],
+      "id": "d5f91757-e0fe-4c76-83fe-0e8341c1b280",
+      "name": "Groq Chat Model"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('Build Follow-up Prompt').item.json.follow_up_prompt }}",
+        "options": {
+          "systemMessage": "You are a senior B2B sales development and RevOps assistant.\n\nReturn raw JSON only.\nDo not use markdown.\nDo not use code fences.\n\nAllowed follow_up_type values:\n- sales_discovery\n- nurture\n- disqualified_no_action\n\nAllowed task_priority values:\n- Low\n- Medium\n- High\n- Urgent\n\nUse sales_discovery for qualified leads.\nUse nurture for incomplete but potentially relevant leads.\nUse disqualified_no_action when there is no real business use case.\n\nThe draft_message should be professional, concise, and specific to the lead's stated business problem."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        896,
+        -144
+      ],
+      "id": "9d67ec13-5f5d-4046-bc41-4f357d66c103",
+      "name": "AI Follow-up Planner"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw =\n  $json.output ||\n  $json.text ||\n  $json.content ||\n  $json.message ||\n  JSON.stringify($json);\n\nconst input = $('Build Follow-up Prompt').first().json;\n\nfunction cleanText(value) {\n  if (!value) return \"\";\n  return String(value).trim();\n}\n\nfunction normalizeValue(value, allowed, fallback) {\n  const text = cleanText(value);\n  return allowed.includes(text) ? text : fallback;\n}\n\nfunction parseBoolean(value) {\n  if (value === true) return true;\n  if (value === false) return false;\n  const text = cleanText(value).toLowerCase();\n  return [\"true\", \"yes\", \"1\"].includes(text);\n}\n\nfunction parseJsonFromText(value) {\n  let text = String(value || \"\").trim();\n\n  text = text\n    .replace(/^```json/i, \"\")\n    .replace(/^```/i, \"\")\n    .replace(/```$/i, \"\")\n    .trim();\n\n  const first = text.indexOf(\"{\");\n  const last = text.lastIndexOf(\"}\");\n\n  if (first !== -1 && last !== -1) {\n    text = text.slice(first, last + 1);\n  }\n\n  return JSON.parse(text);\n}\n\nconst parsed = parseJsonFromText(raw);\n\nconst allowedTypes = [\n  \"sales_discovery\",\n  \"nurture\",\n  \"disqualified_no_action\"\n];\n\nconst allowedPriorities = [\n  \"Low\",\n  \"Medium\",\n  \"High\",\n  \"Urgent\"\n];\n\nlet shouldCreate = parseBoolean(parsed.should_create_follow_up);\n\nif (input.lead_score.lead_status === \"qualified\") {\n  shouldCreate = true;\n}\n\nif (input.lead_score.lead_status === \"disqualified\") {\n  shouldCreate = false;\n}\n\nlet dueInDays = Number(parsed.due_in_days);\nif (Number.isNaN(dueInDays)) dueInDays = 1;\ndueInDays = Math.max(0, Math.min(14, Math.round(dueInDays)));\n\nconst dueDate = new Date();\ndueDate.setDate(dueDate.getDate() + dueInDays);\n\nconst followUp = {\n  should_create_follow_up: shouldCreate,\n  follow_up_type: normalizeValue(\n    parsed.follow_up_type,\n    allowedTypes,\n    input.lead_score.lead_status === \"qualified\" ? \"sales_discovery\" : \"nurture\"\n  ),\n  task_title: cleanText(parsed.task_title) || `Follow up with ${input.lead_name || input.company_name || \"lead\"}`,\n  task_description: cleanText(parsed.task_description),\n  task_priority: normalizeValue(\n    parsed.task_priority,\n    allowedPriorities,\n    input.lead_score.priority || \"Medium\"\n  ),\n  due_in_days: dueInDays,\n  due_date: dueDate.toISOString().slice(0, 10),\n  owner_role: cleanText(parsed.owner_role || input.lead_score.suggested_owner_role),\n  draft_message: cleanText(parsed.draft_message),\n  telegram_summary: cleanText(parsed.telegram_summary),\n  reason: cleanText(parsed.reason),\n  created_at: new Date().toISOString()\n};\n\nif (!followUp.task_description) {\n  followUp.task_description = [\n    `Lead: ${input.lead_name || \"Unknown\"}`,\n    `Company: ${input.company_name || \"Unknown\"}`,\n    `Score: ${input.lead_score.lead_score}/100`,\n    `Status: ${input.lead_score.lead_status}`,\n    input.lead_score.recommended_next_action\n      ? `Recommended next action: ${input.lead_score.recommended_next_action}`\n      : \"\"\n  ].filter(Boolean).join(\"\\n\");\n}\n\nif (!followUp.telegram_summary) {\n  followUp.telegram_summary = [\n    `New ${input.lead_score.fit_level} fit lead`,\n    `${input.lead_name || \"Unknown lead\"} at ${input.company_name || \"Unknown company\"}`,\n    `Score: ${input.lead_score.lead_score}/100`,\n    `Priority: ${input.lead_score.priority}`,\n    `Next: ${input.lead_score.recommended_next_action || followUp.task_title}`\n  ].join(\"\\n\");\n}\n\nreturn [\n  {\n    json: {\n      ...input,\n      follow_up: followUp\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1248,
+        -144
+      ],
+      "id": "6d4c11aa-38f0-4369-a7d2-8072b4f43c4c",
+      "name": "Parse Follow-up Plan"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "0e5f99c8-5301-45df-b3b1-42d74e871f64",
+              "leftValue": "={{ $json.follow_up.should_create_follow_up }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1472,
+        -144
+      ],
+      "id": "399376e7-0765-4f61-abf5-18df44123c5a",
+      "name": "Should Create Follow-up?"
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "databaseId": {
+          "__rl": true,
+          "value": "389de429-82a9-80e8-a9f7-fc2b6d889ba9",
+          "mode": "list",
+          "cachedResultName": "Lead Tasks Tracker",
+          "cachedResultUrl": "https://app.notion.com/p/389de42982a980e8a9f7fc2b6d889ba9"
+        },
+        "title": "={{ $json.follow_up.task_title }}",
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "Description|rich_text",
+              "textContent": "={{ $json.follow_up.task_description }}"
+            },
+            {
+              "key": "Draft Message|rich_text",
+              "textContent": "={{ $json.follow_up.draft_message }}"
+            },
+            {
+              "key": "Due date|date",
+              "includeTime": false,
+              "date": "={{ $json.follow_up.due_date }}"
+            },
+            {
+              "key": "Priority|select",
+              "selectValue": "={{ $json.follow_up.task_priority }}"
+            },
+            {
+              "key": "Status|status",
+              "statusValue": "Not started"
+            },
+            {
+              "key": "Task Type|select",
+              "selectValue": "={{ $json.follow_up.follow_up_type }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        1696,
+        -240
+      ],
+      "id": "b2b70dde-5dd4-46ee-8ec4-49952e1f3a68",
+      "name": "Create Notion Follow-up Task"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $('Parse Follow-up Plan').first().json;\n\nreturn [\n  {\n    json: {\n      ...data,\n      notion_follow_up_task_id: null,\n      follow_up_skipped: true\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1696,
+        -48
+      ],
+      "id": "b21295d7-a7fd-4908-90d2-8e64743ebfe5",
+      "name": "No Follow-up Placeholder"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1920,
+        -144
+      ],
+      "id": "be0bf827-173c-4abf-9d00-15951bd0f154",
+      "name": "Merge Follow-up Result"
+    },
+    {
+      "parameters": {
+        "jsCode": "const current = $input.first().json || {};\nconst data = $('Parse Follow-up Plan').first().json;\n\nconst notionTaskId =\n  current.id ||\n  current.notion_follow_up_task_id ||\n  null;\n\nconst followUpResult = {\n  ...data.follow_up,\n  notion_follow_up_task_id: notionTaskId,\n  follow_up_created: Boolean(notionTaskId),\n  follow_up_skipped: !notionTaskId,\n  completed_at: new Date().toISOString()\n};\n\nreturn [\n  {\n    json: {\n      ...data,\n      follow_up_result: followUpResult,\n      notion_follow_up_task_id: notionTaskId\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2144,
+        -144
+      ],
+      "id": "ad5ef4df-e124-45d9-b65f-77ca38248aaf",
+      "name": "Build Follow-up Result"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.raw_events\nSET payload =\n        COALESCE(payload, '{}'::jsonb)\n        || jsonb_build_object(\n            'follow_up', $2::jsonb\n        ),\n    processing_status = 'completed',\n    updated_at = NOW()\nWHERE internal_id = $1\nRETURNING\n    internal_id,\n    external_id,\n    processing_status,\n    payload;",
+        "options": {
+          "queryReplacement": "={{[  $json.event_id,  JSON.stringify($json.follow_up_result)]}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2368,
+        -144
+      ],
+      "id": "2b1c8031-2f2d-470c-b5d9-b5c770cc1622",
+      "name": "Update Raw Event With Follow-up"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.leads\nSET status = $2,\n    updated_at = NOW()\nWHERE internal_id = $1\nRETURNING\n    internal_id,\n    lead_name,\n    lead_email,\n    status;",
+        "options": {
+          "queryReplacement": "={{[  $('Build Follow-up Result').item.json.lead_id,  $('Build Follow-up Result').item.json.lead_score.lead_status]}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2592,
+        -144
+      ],
+      "id": "4c072016-3e1c-469a-8a08-ace43650a438",
+      "name": "Update Lead Final Status"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO public.workflow_logs (\n    event_id,\n    lead_id,\n    step_name,\n    status,\n    wf_message,\n    workflow_name\n)\nVALUES (\n    $1,\n    $2,\n    'follow-up workflow completed',\n    'success',\n    $3,\n    '06 - Follow-up Creator'\n)\nRETURNING internal_id;",
+        "options": {
+          "queryReplacement": "={{[  $('Build Follow-up Result').first().json.event_id,  $('Build Follow-up Result').first().json.lead_id,  $('Build Follow-up Result').first().json.follow_up_result.follow_up_created    ? 'Follow-up task created in Notion. Task ID: ' + $('Build Follow-up Result').first().json.follow_up_result.notion_follow_up_task_id    : 'Follow-up skipped. Reason: ' + $('Build Follow-up Result').first().json.follow_up_result.reason]}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2816,
+        -144
+      ],
+      "id": "79fa404f-38b8-42e5-9698-f9b4e1da1416",
+      "name": "Log Follow-up Step"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "bb65c48f-2900-4a3e-8d00-7c2632dabd7c",
+              "leftValue": "={{ $('Build Follow-up Result').first().json.lead_score.lead_status }}",
+              "rightValue": "qualified",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            },
+            {
+              "id": "eada22aa-f566-4ed2-a33d-67ddda0e9329",
+              "leftValue": "={{ $('Build Follow-up Result').first().json.lead_score.priority }}",
+              "rightValue": "Urgent",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            },
+            {
+              "id": "ce0441c3-82d5-4dfb-8c11-1de767b813ef",
+              "leftValue": "={{ $('Build Follow-up Result').first().json.lead_score.priority }}",
+              "rightValue": "High",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3040,
+        -144
+      ],
+      "id": "2c3495f1-a5d1-4ce4-8a13-9a32da6d57cb",
+      "name": "Should Notify Sales?"
+    },
+    {
+      "parameters": {
+        "chatId": "7745531696",
+        "text": "={{ [\n  \"🔥 Qualified inbound lead\",\n  \"\",\n  \"Lead: \" + ($('Build Follow-up Result').first().json.lead_name || \"Unknown\"),\n  \"Company: \" + ($('Build Follow-up Result').first().json.company_name || \"Unknown\"),\n  \"Email: \" + ($('Build Follow-up Result').first().json.lead_email || \"Missing\"),\n  \"Score: \" + ($('Build Follow-up Result').first().json.lead_score.lead_score || 0) + \"/100\",\n  \"Fit: \" + ($('Build Follow-up Result').first().json.lead_score.fit_level || \"Unknown\"),\n  \"Priority: \" + ($('Build Follow-up Result').first().json.lead_score.priority || \"Unknown\"),\n  \"Routing: \" + ($('Build Follow-up Result').first().json.lead_score.routing_team || \"Unknown\"),\n  \"\",\n  \"Next action: \" + (\n    $('Build Follow-up Result').first().json.lead_score.recommended_next_action ||\n    $('Build Follow-up Result').first().json.follow_up_result.task_title ||\n    \"Not provided\"\n  ),\n  $('Build Follow-up Result').first().json.crm_lead_page_id\n    ? \"CRM Page: \" + $('Build Follow-up Result').first().json.crm_lead_page_id\n    : \"\",\n  $('Build Follow-up Result').first().json.notion_follow_up_task_id\n    ? \"Follow-up Task: \" + $('Build Follow-up Result').first().json.notion_follow_up_task_id\n    : \"\",\n  \"\",\n  $('Build Follow-up Result').first().json.follow_up_result.telegram_summary || \"\"\n].filter(Boolean).join(\"\\n\") }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3264,
+        -240
+      ],
+      "id": "d98838e7-99a0-4a55-9698-acc462b92a8c",
+      "name": "Send Sales Alert",
+      "webhookId": ""
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $('Build Follow-up Result').first().json;\n\nreturn [\n  {\n    json: {\n      success: true,\n      event_id: data.event_id,\n      lead_id: data.lead_id,\n      lead_status: data.lead_score.lead_status,\n      lead_score: data.lead_score.lead_score,\n      processing_status: \"completed\",\n      notified_sales: false\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3264,
+        -48
+      ],
+      "id": "45a2f7e2-6cfc-4e76-b495-f15cf99913b0",
+      "name": "Return Completion"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.raw_events\nSET last_execution_id = $2,\n    last_workflow_name = $3,\n    updated_at = NOW()\nWHERE internal_id = $1\nRETURNING internal_id;",
+        "options": {
+          "queryReplacement": "={{[  $('Normalize Follow-up Input').item.json.event_id || $('Normalize Follow-up Input').item.json.run_id,  $execution.id,  $workflow.name]}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        672,
+        -144
+      ],
+      "id": "56be2157-67d6-4294-b804-fa855993f619",
+      "name": "Register Execution"
+    }
+  ],
+  "pinData": {
+    "When Executed by Another Workflow": [
+      {
+        "json": {
+          "run_id": 17,
+          "event_id": 17,
+          "external_id": "website_form:test_lead_001",
+          "event_source": "website_form",
+          "lead_id": 34,
+          "lead_name": "Anna Meyer",
+          "lead_email": "anna@acme.com",
+          "lead_phone": "+49123456789",
+          "lead_source": "website_form",
+          "company_name": "Acme Logistics",
+          "company_domain": "acme.com",
+          "website_url": "https://acme.com",
+          "job_title": "Operations Manager",
+          "message": "We want to automate order intake, customer updates, and routing between teams.",
+          "budget": "5000-10000",
+          "timeline": "This quarter",
+          "country": "Germany",
+          "enrichment": {},
+          "lead_score": {
+            "lead_score": 86,
+            "fit_level": "High",
+            "priority": "Urgent",
+            "routing_team": "Automation Consulting",
+            "lead_status": "qualified",
+            "recommended_next_action": "Book discovery call.",
+            "reasoning_summary": "The lead has clear operational pain, budget, and timeline.",
+            "positive_signals": [],
+            "negative_signals": [],
+            "missing_information": [],
+            "follow_up_angle": "Focus on order intake automation."
+          },
+          "crm": {
+            "crm_lead_page_id": "389de429-82a9-8038-aad7-d7203f81be37",
+            "crm_action": "update",
+            "lead_title": "Anna Meyer",
+            "lead_name": "Anna Meyer",
+            "lead_email": "anna@acme.com",
+            "lead_phone": "+49123456789",
+            "job_title": "Operations Manager",
+            "company_name": "Acme Logistics",
+            "company_domain": "acme.com",
+            "website_url": "https://acme.com",
+            "status": "Qualified",
+            "priority": "Urgent",
+            "fit_level": "High",
+            "lead_score": 86,
+            "routing_team": "Automation Consulting",
+            "source": "website_form",
+            "next_action": "Book discovery call.",
+            "notes": "Lead message:\nWe want to automate order intake, customer updates, and routing between teams.\n\nScoring reasoning:\nThe lead has clear operational pain, budget, and timeline.\n\nRecommended next action:\nBook discovery call.\n\nFollow-up angle:\nFocus on order intake automation."
+          },
+          "crm_sync": {
+            "crm_system": "Notion",
+            "crm_action": "update",
+            "crm_lead_page_id": "389de429-82a9-8038-aad7-d7203f81be37",
+            "crm_status": "Qualified",
+            "crm_priority": "Urgent",
+            "crm_fit_level": "High",
+            "crm_lead_score": 86,
+            "synced_at": "2026-06-24T18:45:06.588Z"
+          },
+          "crm_lead_page_id": "389de429-82a9-8038-aad7-d7203f81be37"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Normalize Follow-up Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Follow-up Input": {
+      "main": [
+        [
+          {
+            "node": "Build Follow-up Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Follow-up Prompt": {
+      "main": [
+        [
+          {
+            "node": "Register Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Follow-up Planner",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Follow-up Planner": {
+      "main": [
+        [
+          {
+            "node": "Parse Follow-up Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Follow-up Plan": {
+      "main": [
+        [
+          {
+            "node": "Should Create Follow-up?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Create Follow-up?": {
+      "main": [
+        [
+          {
+            "node": "Create Notion Follow-up Task",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Follow-up Placeholder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Notion Follow-up Task": {
+      "main": [
+        [
+          {
+            "node": "Merge Follow-up Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No Follow-up Placeholder": {
+      "main": [
+        [
+          {
+            "node": "Merge Follow-up Result",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Follow-up Result": {
+      "main": [
+        [
+          {
+            "node": "Build Follow-up Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Follow-up Result": {
+      "main": [
+        [
+          {
+            "node": "Update Raw Event With Follow-up",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Raw Event With Follow-up": {
+      "main": [
+        [
+          {
+            "node": "Update Lead Final Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Lead Final Status": {
+      "main": [
+        [
+          {
+            "node": "Log Follow-up Step",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Follow-up Step": {
+      "main": [
+        [
+          {
+            "node": "Should Notify Sales?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Notify Sales?": {
+      "main": [
+        [
+          {
+            "node": "Send Sales Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return Completion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Register Execution": {
+      "main": [
+        [
+          {
+            "node": "AI Follow-up Planner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "N6a97QDbnRTmFz4k",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "5f5b4b28-167a-4d14-8b02-907e90c12c5f",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "49a09db7efa01a7c7119f7127498f0870c70db8b6ad3f8ad75f8f2f312ddc0ad"
+  },
+  "id": "IUjObc3NmS9IqGcr",
+  "tags": []
+}

@@ -1,0 +1,17 @@
+{
+  "source_event_id": "demo_real_lead_003",
+  "source": "website_form",
+  "first_name": "Tom",
+  "last_name": "Student",
+  "full_name": "Tom Student",
+  "email": "tom.student@example.edu",
+  "phone": "",
+  "job_title": "Student",
+  "company_name": "University Demo Lab",
+  "company_domain": "example.edu",
+  "website": "https://example.edu",
+  "message": "I am writing a school project about AI automation and would like free access to workflows and prompts for research.",
+  "budget": "0",
+  "timeline": "Whenever",
+  "country": "United States"
+}

@@ -1,0 +1,17 @@
+{
+  "source_event_id": "demo_real_lead_001",
+  "source": "website_form",
+  "first_name": "Anna",
+  "last_name": "Meyer",
+  "full_name": "Anna Meyer",
+  "email": "anna.meyer@maersk.com",
+  "phone": "+49 30 12345678",
+  "job_title": "Operations Manager",
+  "company_name": "Maersk",
+  "company_domain": "maersk.com",
+  "website": "https://www.maersk.com",
+  "message": "We want to automate order intake, shipment status updates, and routing between operations teams. New requests arrive by email and are copied manually into spreadsheets. We need validation, task assignment, and automatic customer updates.",
+  "budget": "10000-20000",
+  "timeline": "This quarter",
+  "country": "Germany"
+}
