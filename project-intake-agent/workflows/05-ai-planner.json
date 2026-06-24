@@ -1,0 +1,397 @@
+{
+  "name": "05 - AI Planner",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "jsonExample",
+        "jsonExample": "{\n  \"run_id\": \"a string\",\n  \"intake_page_id\": \"a string\",\n  \"project_page_id\": \"a string\",\n  \"status\": \"a string\",\n  \"normalized_context\": null\n}"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        80
+      ],
+      "id": "0c33f089-f3ba-4ed3-9b21-c26764b8cc98",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nlet context = input.normalized_context;\n\nif (typeof context === \"string\") {\n  context = JSON.parse(context);\n}\n\nif (!input.run_id) throw new Error(\"Missing run_id\");\nif (!input.project_page_id) throw new Error(\"Missing project_page_id\");\nif (!context) throw new Error(\"Missing normalized_context\");\n\nconst plannerInput = {\n  run_id: input.run_id,\n  project_id: input.project_page_id,\n  intake_page_id: input.intake_page_id,\n\n  project: context.project,\n  stats: context.stats,\n  document_index: context.document_index,\n  sources: context.sources,\n\n  instruction_context: {\n    expected_output: \"implementation plan for an AI-powered project intake automation system\",\n    avoid: [\n      \"generic research tasks\",\n      \"empty architecture\",\n      \"empty workflow design\",\n      \"invented external tools\",\n      \"markdown output\"\n    ]\n  }\n};\n\nreturn [\n  {\n    json: {\n      run_id: input.run_id,\n      intake_page_id: input.intake_page_id,\n      project_page_id: input.project_page_id,\n      normalized_context: context,\n      prompt_input: JSON.stringify(plannerInput)\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        80
+      ],
+      "id": "833e13c9-89cb-4f69-81ff-ac12fec2616c",
+      "name": "Prepare Planner Prompt"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{\n`Generate a concrete implementation blueprint from this normalized project context.\n\nThis must be an engineering implementation plan, not a generic project plan.\n\nHard requirements:\n- Return raw JSON only.\n- Do not use code fences.\n- implementation_phases must be an array.\n- Create 12 to 15 tasks.\n- No more than 2 Discovery tasks.\n- Avoid generic tasks.\n- Every task must mention a concrete workflow, database table, API, node type, payload, status, or Notion database.\n- Include implementation work for intake routing, file processing, reusable upload, context building, AI planning, task upsert, Notion task creation, idempotency, testing, and error handling if relevant.\n\nNORMALIZED_CONTEXT_JSON:\n${$json.prompt_input}`\n}}",
+        "options": {
+          "systemMessage": "You are a senior n8n automation architect.\n\nYou generate implementation-ready automation plans for real n8n + Notion + PostgreSQL/Supabase projects.\n\nReturn ONLY raw JSON.\nDo not use markdown.\nDo not wrap output in code fences.\nDo not write ```json.\nThe first character must be {.\nThe last character must be }.\n\nYou must create a technical implementation plan, not a generic project plan.\n\nThe system being planned should usually be decomposed into concrete automation components such as:\n\n* Intake routing\n* Run reservation and duplicate prevention\n* File/attachment processing\n* Reusable asset upload\n* PostgreSQL persistence\n* Notion project/page updates\n* Context building\n* AI planning\n* JSON parsing and validation\n* Task upsert\n* Notion task creation\n* Error handling\n* Rerun safety\n* Production testing\n\nUse the provided context deeply:\n\n* project fields\n* SOP text\n* documentation text\n* screenshot descriptions\n* file metadata\n* document index\n* detected systems/tools\n* database structure implied by the context\n\nDo not create generic tasks such as:\n\n* Analyze Existing SOPs and Documentation\n* Design Technical Architecture\n* Implement n8n Workflow\n* Integrate with Notion and Supabase\n* Implement AI Planning and Task Generation\n* Test the System\n* Deploy the System\n* Monitor and Optimize\n\nIf you are tempted to create a generic task, replace it with a concrete engineering task.\n\nGood task examples:\n\n* Configure Intake Router status guard for new Notion submissions\n* Implement PostgreSQL run reservation with intake_page_id deduplication\n* Build Attachment Processor logic for SOP, documentation, and screenshot URLs\n* Configure Reusable Asset Uploader for Supabase Storage and Notion Document Hub\n* Add project_documents upsert with storage and Notion upload metadata\n* Build Context Builder query to load raw intake and processed documents\n* Implement normalized_context generation with source grouping and text limits\n* Create AI Planner JSON parser with markdown cleanup and schema validation\n* Add task quality gate before saving AI-generated plans\n* Upsert project_tasks rows with stable task_key values\n* Build Notion Writer loop for pending task rows\n* Persist notion_task_id after each Notion task is created\n* Validate no-file intake path from Attachment Processor to Context Builder\n* Validate multi-file processing across PDFs, DOCX files, and screenshots\n* Add run status recovery and error logging for failed workflow stages\n\nMissing information handling:\nIf implementation-critical information is missing, put it in missing_information as an array of concise strings.\n\nDo not use:\n\n* NEEDS_CLARIFICATION\n* AI_PLANNED\n* Needs clarification\n* Needs review\n\nDo not stop the plan because of missing information.\n\nThe workflow will convert every item in missing_information into one Discovery task named:\n\"Collect missing project inputs\"\n\nDo not create multiple missing-information tasks.\nDo not mark the project as blocked.\nDo not use missing_information to change the project status.\n\nRequired output rules:\n\n1. project_summary must be 3–5 specific sentences.\n2. business_problem must describe the workflow/operations problem.\n3. desired_outcome must describe the final working automation.\n4. technical_architecture must name concrete components, databases, APIs, and data flow.\n5. workflow_design must describe the exact automation sequence.\n6. tools_and_systems must contain specific tools only.\n7. apis_and_integrations must contain concrete APIs/integrations only.\n8. data_objects must contain concrete tables, Notion databases, pages, files, or payload objects.\n9. risks must contain implementation risks.\n10. assumptions must contain only assumptions supported by context.\n11. missing_information must be an array. Use [] if nothing critical is missing.\n12. implementation_phases must be an ARRAY of objects, not an object.\n13. tasks must contain 12 to 15 task objects.\n14. No more than 2 tasks may be Discovery.\n15. At least 8 tasks must be Design, Development, Testing, Production, or Optimization.\n16. Every task must be specific enough that an automation engineer can execute it.\n17. Every task_name must start with an action verb.\n18. Every task_description must mention a concrete workflow, database table, API, node type, payload, status, or Notion database.\n19. Do not create duplicate tasks.\n20. deadline may be an empty string.\n\nAllowed Notion Project Status values only:\n\n* New project\n* Not started\n* Discovery\n* Design\n* Development\n* Testing\n* Production\n* Done\n\nFor this workflow, after planning is complete, use project_status:\nDiscovery\n\nAllowed task_stage values only:\n\n* Discovery\n* Design\n* Development\n* Testing\n* Production\n* Optimization\n\nAllowed task_status values only:\n\n* Not started\n* In progress\n* Done\n\nAllowed priority values only:\n\n* Low\n* Medium\n* High\n* Urgent\n\nAllowed effort_level values only:\n\n* Small\n* Medium\n* Large\n\nNever output any project status or task status outside the allowed lists.\n\nReturn exactly this JSON schema:\n\n{\n\"run_id\": \"\",\n\"project_id\": \"\",\n\"intake_page_id\": \"\",\n\"project_status\": \"Discovery\",\n\"project_summary\": \"\",\n\"business_problem\": \"\",\n\"desired_outcome\": \"\",\n\"technical_architecture\": \"\",\n\"workflow_design\": \"\",\n\"tools_and_systems\": [],\n\"apis_and_integrations\": [],\n\"data_objects\": [],\n\"risks\": [],\n\"assumptions\": [],\n\"missing_information\": [],\n\"implementation_phases\": [\n{\n\"phase\": \"Discovery\",\n\"summary\": \"\",\n\"deliverables\": []\n},\n{\n\"phase\": \"Design\",\n\"summary\": \"\",\n\"deliverables\": []\n},\n{\n\"phase\": \"Development\",\n\"summary\": \"\",\n\"deliverables\": []\n},\n{\n\"phase\": \"Testing\",\n\"summary\": \"\",\n\"deliverables\": []\n},\n{\n\"phase\": \"Production\",\n\"summary\": \"\",\n\"deliverables\": []\n},\n{\n\"phase\": \"Optimization\",\n\"summary\": \"\",\n\"deliverables\": []\n}\n],\n\"tasks\": [\n{\n\"task_name\": \"\",\n\"task_description\": \"\",\n\"task_stage\": \"Discovery\",\n\"task_status\": \"Not started\",\n\"priority\": \"Medium\",\n\"effort_level\": \"Medium\",\n\"deadline\": \"\"\n}\n]\n}"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        448,
+        80
+      ],
+      "id": "bbf11e4d-db20-4b61-8a12-4657c037c1ec",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        528,
+        304
+      ],
+      "id": "efc03cac-ce70-408c-a540-eef51de39f93",
+      "name": "Groq Chat Model"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw =\n  $json.output ||\n  $json.text ||\n  $json.content ||\n  $json.message ||\n  JSON.stringify($json);\n\nconst input = $('Prepare Planner Prompt').first().json;\nconst context = input.normalized_context;\n\nfunction parseJsonFromText(value) {\n  let text = String(value).trim();\n\n  text = text\n    .replace(/^```json/i, \"\")\n    .replace(/^```/i, \"\")\n    .replace(/```$/i, \"\")\n    .trim();\n\n  const first = text.indexOf(\"{\");\n  const last = text.lastIndexOf(\"}\");\n\n  if (first !== -1 && last !== -1) {\n    text = text.slice(first, last + 1);\n  }\n\n  return JSON.parse(text);\n}\n\nconst plan = parseJsonFromText(raw);\n\nconst allowedStages = [\n  \"Discovery\",\n  \"Design\",\n  \"Development\",\n  \"Testing\",\n  \"Production\",\n  \"Optimization\"\n];\n\nconst allowedStatuses = [\"Not started\", \"In progress\", \"Done\"];\nconst allowedPriorities = [\"Low\", \"Medium\", \"High\", \"Urgent\"];\nconst allowedEfforts = [\"Small\", \"Medium\", \"Large\"];\n\nfunction normalizeValue(value, allowed, fallback) {\n  if (!value) return fallback;\n  const clean = String(value).trim();\n  return allowed.includes(clean) ? clean : fallback;\n}\n\nfunction normalizeArray(value) {\n  if (!value) return [];\n  if (Array.isArray(value)) return value.map(v => String(v).trim()).filter(Boolean);\n  return [String(value).trim()].filter(Boolean);\n}\n\nfunction cleanText(value) {\n  if (!value) return \"\";\n  return String(value).trim();\n}\n\nconst runId = plan.run_id || input.run_id;\nconst projectId = plan.project_id || input.project_page_id;\nconst intakePageId = plan.intake_page_id || input.intake_page_id;\nconst fallbackDeadline = context.project?.deadline || \"\";\n\nconst rawTasks = Array.isArray(plan.tasks) ? plan.tasks : [];\n\nconst tasks = rawTasks.map((task, index) => {\n  const stage = normalizeValue(task.task_stage, allowedStages, \"Discovery\");\n  const name = cleanText(task.task_name || `${stage} Task ${index + 1}`);\n\n  return {\n    run_id: runId,\n    project_page_id: projectId,\n    intake_page_id: intakePageId,\n\n    task_key: `${runId}_${index + 1}_${name}`\n      .toLowerCase()\n      .replace(/[^\\w]+/g, \"_\")\n      .replace(/^_+|_+$/g, \"\"),\n\n    task_name: name,\n    task_description: cleanText(task.task_description),\n    task_stage: stage,\n    task_status: normalizeValue(task.task_status, allowedStatuses, \"Not started\"),\n    priority: normalizeValue(task.priority, allowedPriorities, \"Medium\"),\n    effort_level: normalizeValue(task.effort_level, allowedEfforts, \"Medium\"),\n    deadline: task.deadline || fallbackDeadline || \"\"\n  };\n});\n\nconst normalizedPlan = {\n  run_id: runId,\n  project_id: projectId,\n  intake_page_id: intakePageId,\n\n  project_summary: cleanText(plan.project_summary),\n  business_problem: cleanText(plan.business_problem || context.project?.business_problem),\n  desired_outcome: cleanText(plan.desired_outcome),\n  technical_architecture: cleanText(plan.technical_architecture),\n  workflow_design: cleanText(plan.workflow_design),\n\n  tools_and_systems: normalizeArray(plan.tools_and_systems),\n  apis_and_integrations: normalizeArray(plan.apis_and_integrations),\n  data_objects: normalizeArray(plan.data_objects),\n  risks: normalizeArray(plan.risks),\n  assumptions: normalizeArray(plan.assumptions),\n  missing_information: normalizeArray(plan.missing_information),\n\n  implementation_phases: Array.isArray(plan.implementation_phases)\n    ? plan.implementation_phases\n    : [],\n\n  tasks,\n  task_count: tasks.length,\n\n  planning_status: normalizeArray(plan.missing_information).length > 0\n    ? \"NEEDS_CLARIFICATION\"\n    : \"AI_PLANNED\"\n};\n\nreturn [{ json: normalizedPlan }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        80
+      ],
+      "id": "b7014af8-d0bc-44d7-ae21-637e72b60d28",
+      "name": "Parse AI Plan"
+    },
+    {
+      "parameters": {
+        "jsCode": "const plan = $('Parse AI Plan').first().json;\n\nif (!Array.isArray(plan.tasks) || plan.tasks.length === 0) {\n  throw new Error(\"AI plan produced no tasks\");\n}\n\nreturn plan.tasks.map((task, index) => ({\n  json: {\n    ...task,\n    task_order: index + 1\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1472,
+        0
+      ],
+      "id": "4112284a-f88f-468f-bb27-c8e51c2218dd",
+      "name": "Build Task Rows"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE project_intake_runs\nSET ai_plan = $2::jsonb,\n    status = 'Discovery',\n    updated_at = NOW()\nWHERE run_id = $1\nRETURNING\n    run_id,\n    intake_page_id,\n    project_page_id,\n    status;",
+        "options": {
+          "queryReplacement": "={{[  $json.run_id,  JSON.stringify($json)]}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1024,
+        80
+      ],
+      "id": "949c3170-3d27-436b-8f6e-518225ae5a94",
+      "name": "Save AI Plan"
+    },
+    {
+      "parameters": {
+        "jsCode": "const plan = $('Parse AI Plan').first().json;\nconst saved = $('Save AI Plan').first().json;\n\nreturn [\n  {\n    json: {\n      run_id: saved.run_id,\n      intake_page_id: saved.intake_page_id,\n      project_page_id: saved.project_page_id,\n      status: 'Discovery',\n      project_status: 'Discovery',\n      task_count: plan.task_count,\n      ai_plan: plan\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        80
+      ],
+      "id": "cf27458d-59fe-450f-affc-b36f46903f27",
+      "name": "Prepare Notion Writer Input"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO project_tasks (\n    run_id,\n    project_page_id,\n    task_key,\n    task_name,\n    task_description,\n    task_stage,\n    task_status,\n    priority,\n    effort_level,\n    deadline,\n    task_order\n)\nVALUES (\n    $1,\n    $2,\n    $3,\n    $4,\n    $5,\n    $6,\n    $7,\n    $8,\n    $9,\n    NULLIF($10, '')::date,\n    $11\n)\nON CONFLICT (task_key)\nDO UPDATE SET\n    task_name = EXCLUDED.task_name,\n    task_description = EXCLUDED.task_description,\n    task_stage = EXCLUDED.task_stage,\n    task_status = EXCLUDED.task_status,\n    priority = EXCLUDED.priority,\n    effort_level = EXCLUDED.effort_level,\n    deadline = EXCLUDED.deadline,\n    task_order = EXCLUDED.task_order,\n    updated_at = NOW()\nRETURNING *;",
+        "options": {
+          "queryReplacement": "={{[  $json.run_id,  $json.project_page_id,  $json.task_key,  $json.task_name,  $json.task_description,  $json.task_stage,  $json.task_status,  $json.priority,  $json.effort_level,  $json.deadline || \"\",  $json.task_order]}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1696,
+        0
+      ],
+      "id": "0f7df8e5-eb93-49c7-8805-1b584b729719",
+      "name": "Insert Task Row"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "sSp80ClE08lCnb9z",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/sSp80ClE08lCnb9z",
+          "cachedResultName": "06 - Notion Writer"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "task_count": "={{ $json.task_count }}",
+            "run_id": "={{ $json.run_id }}",
+            "intake_page_id": "={{ $json.intake_page_id }}",
+            "project_page_id": "={{ $json.project_page_id }}",
+            "status": "={{ $json.status }}",
+            "ai_plan": "={{ JSON.stringify($json.ai_plan) }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "run_id",
+              "displayName": "run_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "intake_page_id",
+              "displayName": "intake_page_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "project_page_id",
+              "displayName": "project_page_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "task_count",
+              "displayName": "task_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number",
+              "removed": false
+            },
+            {
+              "id": "ai_plan",
+              "displayName": "ai_plan",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        2144,
+        80
+      ],
+      "id": "b8db0e0c-4d5d-4089-a9cd-50f11007f8b6",
+      "name": "Call '06 - Notion Writer'"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "f0857c5e-147a-472c-ba97-d375ad829ef5",
+              "leftValue": "={{ $('Parse AI Plan').first().json.planning_status }}",
+              "rightValue": "AI_PLANNED",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1248,
+        80
+      ],
+      "id": "9e461295-9226-474f-b55b-429b70d34a80",
+      "name": "If"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Prepare Planner Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Planner Prompt": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Plan": {
+      "main": [
+        [
+          {
+            "node": "Save AI Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save AI Plan": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Task Rows": {
+      "main": [
+        [
+          {
+            "node": "Insert Task Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Task Row": {
+      "main": [
+        [
+          {
+            "node": "Prepare Notion Writer Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Notion Writer Input": {
+      "main": [
+        [
+          {
+            "node": "Call '06 - Notion Writer'",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Build Task Rows",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Notion Writer Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "HcnfSwqswl0gRWmh",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "c180a276-e6e2-4d57-9f41-2ab466e9b8e7",
+  "id": "eksi5ndN36OJaFay",
+  "tags": []
+}

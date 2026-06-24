@@ -1,0 +1,236 @@
+{
+  "name": "00 - Error Handler",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -192
+      ],
+      "id": "3b41b011-0a54-495b-9a34-e5fafc02ed5d",
+      "name": "Error Trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nconst execution = input.execution || {};\nconst workflow = input.workflow || {};\nconst error = execution.error || {};\n\nfunction clean(value, max = 3500) {\n  if (value === undefined || value === null) return \"\";\n  return String(value).slice(0, max);\n}\n\nfunction inferSeverity(workflowName, nodeName, message) {\n  const text = `${workflowName} ${nodeName} ${message}`.toLowerCase();\n\n  if (text.includes(\"json.parse\") || text.includes(\"invalid json\")) return \"critical\";\n  if (text.includes(\"insert\") || text.includes(\"update\") || text.includes(\"postgres\")) return \"critical\";\n  if (text.includes(\"notion task\")) return \"critical\";\n\n  // In global Error Trigger, I recommend notifying even for upload errors,\n  // because the workflow has already failed.\n  if (text.includes(\"supabase\") || text.includes(\"upload\")) return \"critical\";\n\n  return \"critical\";\n}\n\nconst workflowName = workflow.name || \"Unknown workflow\";\nconst nodeName = execution.lastNodeExecuted || \"Unknown node\";\nconst message = clean(error.message || \"Unknown error\");\nconst severity = inferSeverity(workflowName, nodeName, message);\n\nconst notify = true;\n\nconst telegramMessage = [\n  severity === \"critical\" ? \"🚨 n8n workflow failed\" : \"⚠️ n8n workflow warning\",\n  \"\",\n  `Workflow: ${workflowName}`,\n  `Node: ${nodeName}`,\n  `Execution: ${execution.id || \"unknown\"}`,\n  execution.url ? `URL: ${execution.url}` : \"\",\n  execution.retryOf ? `Retry of: ${execution.retryOf}` : \"\",\n  execution.mode ? `Mode: ${execution.mode}` : \"\",\n  \"\",\n  `Error: ${message}`\n].filter(Boolean).join(\"\\n\");\n\nreturn [\n  {\n    json: {\n      workflow_id: workflow.id || null,\n      workflow_name: workflowName,\n      execution_id: execution.id || null,\n      execution_url: execution.url || null,\n      retry_of: execution.retryOf || null,\n      execution_mode: execution.mode || null,\n\n      node_name: nodeName,\n      severity,\n      event_type: severity === \"critical\" ? \"ERROR\" : \"WARNING\",\n      error_message: message,\n      error_stack: clean(error.stack, 7000),\n\n      notify,\n      telegram_message: telegramMessage,\n\n      run_id: null,\n      project_page_id: null,\n      intake_page_id: null,\n\n      raw_payload: input\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        -192
+      ],
+      "id": "e4e8e83a-ce6f-44af-aa4c-963733d30820",
+      "name": "Normalize Error Payload"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "eb3e34de-1752-4c06-a176-a362e1bc7c24",
+              "leftValue": "={{ $('Normalize Error Payload').item.json.severity }}",
+              "rightValue": "critical",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1104,
+        -192
+      ],
+      "id": "bd041c15-f79d-4db8-ac12-6fbef7ffa484",
+      "name": "Critical Error?"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH upd AS (\n    UPDATE project_intake_runs\n    SET error_message = $2,\n        last_failed_workflow = $3,\n        last_failed_node = $4,\n        last_error_at = NOW(),\n        error_count = COALESCE(error_count, 0) + 1,\n        updated_at = NOW()\n    WHERE run_id = $1\n    RETURNING\n        run_id,\n        intake_page_id,\n        project_page_id,\n        error_message,\n        error_count\n)\nSELECT\n    COALESCE((SELECT run_id FROM upd), $1) AS run_id,\n    COALESCE((SELECT intake_page_id FROM upd), NULL) AS intake_page_id,\n    COALESCE((SELECT project_page_id FROM upd), NULL) AS project_page_id,\n    $2 AS error_message,\n    COALESCE((SELECT error_count FROM upd), 0) AS error_count;",
+        "options": {
+          "queryReplacement": "={{\n[\n  $json.run_id,\n  $json.error_message,\n  $json.workflow_name,\n  $json.node_name\n]\n}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1328,
+        -128
+      ],
+      "id": "41c4c6ef-9a74-4ac1-b4e3-9f29b2a3e792",
+      "name": "Update Run Error State"
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "={{ $('Build Error Context').first().json.telegram_message }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1552,
+        -192
+      ],
+      "id": "0b82d42d-7d35-4160-a8c6-ef11348b0493",
+      "name": "Send Telegram Alert"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH latest AS (\n    SELECT\n        run_id,\n        intake_page_id,\n        project_page_id,\n        status\n    FROM project_intake_runs\n    WHERE status NOT IN ('Done', 'COMPLETED')\n    ORDER BY updated_at DESC\n    LIMIT 1\n)\nSELECT\n    (SELECT run_id FROM latest) AS run_id,\n    (SELECT intake_page_id FROM latest) AS intake_page_id,\n    (SELECT project_page_id FROM latest) AS project_page_id,\n    (SELECT status FROM latest) AS status;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        448,
+        -192
+      ],
+      "id": "0a632e72-23ac-48fa-9a2c-59b7a228de47",
+      "name": "Find Recent Active Run"
+    },
+    {
+      "parameters": {
+        "jsCode": "const error = $('Normalize Error Payload').first().json;\nconst run = $input.first().json || {};\n\nconst runId = run.run_id || null;\nconst intakePageId = run.intake_page_id || null;\nconst projectPageId = run.project_page_id || null;\n\nconst telegramMessage = [\n  error.telegram_message,\n  \"\",\n  runId ? `Run ID: ${runId}` : \"Run ID: not found\",\n  projectPageId ? `Project ID: ${projectPageId}` : \"Project ID: not found\",\n  intakePageId ? `Intake ID: ${intakePageId}` : \"Intake ID: not found\"\n].join(\"\\n\");\n\nreturn [\n  {\n    json: {\n      ...error,\n\n      run_id: runId,\n      intake_page_id: intakePageId,\n      project_page_id: projectPageId,\n      run_status: run.status || null,\n\n      telegram_message: telegramMessage\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        -192
+      ],
+      "id": "e3d2678a-7ed2-43e1-903f-82c5e789b3fb",
+      "name": "Build Error Context"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO project_events (\n    run_id,\n    event_type,\n    workflow_name,\n    node_name,\n    severity,\n    message,\n    payload\n)\nVALUES (\n    $1,\n    $2,\n    $3,\n    $4,\n    $5,\n    $6,\n    $7::jsonb\n)\nRETURNING id;",
+        "options": {
+          "queryReplacement": "={{[  $json.run_id,  $json.event_type,  $json.workflow_name,  $json.node_name,  $json.severity,  $json.error_message,  JSON.stringify($json.raw_payload)]}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        880,
+        -192
+      ],
+      "id": "514dd5e3-c74a-426b-b91c-e2ed96466080",
+      "name": "Insert Error Event"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalize Error Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Error Payload": {
+      "main": [
+        [
+          {
+            "node": "Find Recent Active Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Critical Error?": {
+      "main": [
+        [
+          {
+            "node": "Update Run Error State",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Telegram Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Run Error State": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Recent Active Run": {
+      "main": [
+        [
+          {
+            "node": "Build Error Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Error Context": {
+      "main": [
+        [
+          {
+            "node": "Insert Error Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Error Event": {
+      "main": [
+        [
+          {
+            "node": "Critical Error?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "0fbb6a47-8611-44ba-9856-c6cc288fd376",
+  "id": "HcnfSwqswl0gRWmh",
+  "tags": []
+}

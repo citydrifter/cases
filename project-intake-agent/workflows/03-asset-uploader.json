@@ -1,0 +1,306 @@
+{
+  "name": "03 - Asset Uploader",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "jsonExample",
+        "jsonExample": "{\n  \"run_id\": \"a string\",\n  \"intake_page_id\": \"a string\",\n  \"project_page_id\": \"a string\",\n  \"file_name\": \"a string\",\n  \"file_type\": \"a string\",\n  \"mime\": \"a string\",\n  \"source_url\": \"a string\"\n}"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        -96
+      ],
+      "id": "04361ed2-8c8e-4a27-ae66-b1ead8c0504f",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "const json = $input.first().json || {};\n\nif (!json.run_id) throw new Error(\"Missing run_id\");\nif (!json.project_page_id) throw new Error(\"Missing project_page_id\");\nif (!json.file_name) throw new Error(\"Missing file_name\");\nif (!json.file_type) throw new Error(\"Missing file_type\");\nif (!json.mime) throw new Error(\"Missing mime\");\nif (!json.source_url) throw new Error(\"Missing source_url\");\n\nconst safeFileName = String(json.file_name)\n  .replace(/[^\\w.\\-() ]+/g, \"_\")\n  .trim();\n\nconst storageBucket = \"Docs\";\nconst storagePath = `${json.run_id}/${safeFileName}`;\n\nreturn [\n  {\n    json: {\n      run_id: json.run_id,\n      project_page_id: json.project_page_id,\n      intake_page_id: json.intake_page_id || null,\n\n      file_name: safeFileName,\n      original_file_name: json.file_name,\n      file_type: json.file_type,\n      mime: json.mime,\n      source_url: json.source_url,\n\n      storage_bucket: storageBucket,\n      storage_path: storagePath\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        -96
+      ],
+      "id": "4009cb45-a689-400f-9746-fad9ce0c6e18",
+      "name": "Normalize Upload Input"
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "databaseId": {
+          "__rl": true,
+          "value": "YOUR_NOTION_DOCUMENT_HUB_DB_ID",
+          "mode": "list",
+          "cachedResultName": "Document Hub",
+          "cachedResultUrl": "https://notion.so/YOUR_PAGE"
+        },
+        "title": "={{ $json.file_name }}",
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "Project Relation|relation",
+              "relationValue": [
+                "={{ $json.project_page_id }}"
+              ]
+            },
+            {
+              "key": "Category|multi_select",
+              "multiSelectValue": "={{ $json.file_type === \"screenshot\" ? [\"Screenshot\"] : ($json.file_type === \"sop\" ? [\"SOP\"] : [\"Strategy doc\"]) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        448,
+        -96
+      ],
+      "id": "dd09fe51-2fc4-4d95-9a9f-2c38f04ea451",
+      "name": "Create Document Hub Page"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Normalize Upload Input').item.json.source_url }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        896,
+        -96
+      ],
+      "id": "148110ce-6dbe-41eb-85dc-7c90aa73c572",
+      "name": "Download File"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/file_uploads",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "notionApi",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        672,
+        -96
+      ],
+      "id": "00d482d8-323d-4797-8ed4-33a714a3ef69",
+      "name": "Create Notion Upload Request"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://YOUR_SUPABASE_PROJECT.supabase.co/storage/v1/object/{{ $('Normalize Upload Input').first().json.storage_bucket }}/{{ $('Normalize Upload Input').first().json.storage_path.urlEncode() }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "={{ $('Normalize Upload Input').item.json.file_name }}",
+              "inputDataFieldName": "data"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1120,
+        -192
+      ],
+      "id": "01f72af7-ba48-45b0-8abc-0f502b02da3d",
+      "name": "Ingest Doc to Supabase",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.notion.com/v1/pages/{{ $('Create Document Hub Page').item.json.id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "notionApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"properties\": {\n    \"File\": {\n      \"type\": \"files\",\n      \"files\": [\n        {\n          \"type\": \"file_upload\",\n          \"file_upload\": {\n            \"id\": \"{{ $('Create Notion Upload Request').first().json.id }}\"\n          },\n          \"name\": \"{{ $('Normalize Upload Input').first().json.file_name }}\"\n        }\n      ]\n    }\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1344,
+        0
+      ],
+      "id": "4d22214a-cefe-4c52-85c7-861acbdc7045",
+      "name": "Add Doc File to Doc Page"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Create Notion Upload Request').item.json.upload_url }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "notionApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Notion-Version",
+              "value": "2026-03-11"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "=data"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1120,
+        0
+      ],
+      "id": "a0ee8d46-9b48-4fd9-98ac-6310ce59e4e9",
+      "name": "Upload Doc to Notion"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $('Normalize Upload Input').first().json;\nconst documentPage = $('Create Document Hub Page').first().json;\nconst uploadRequest = $('Create Notion Upload Request').first().json;\n\nreturn [\n  {\n    json: {\n      run_id: input.run_id,\n      project_page_id: input.project_page_id,\n      intake_page_id: input.intake_page_id,\n\n      file_name: input.file_name,\n      original_file_name: input.original_file_name,\n      file_type: input.file_type,\n      mime: input.mime,\n      source_url: input.source_url,\n\n      storage_bucket: input.storage_bucket,\n      storage_path: input.storage_path,\n      storage_url: null,\n\n      notion_document_page_id: documentPage.id,\n      notion_file_upload_id: uploadRequest.id,\n\n      upload_status: \"uploaded\"\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        0
+      ],
+      "id": "229faad8-d426-439f-8c53-0574a121f19c",
+      "name": "Return Upload Metadata"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Normalize Upload Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Upload Input": {
+      "main": [
+        [
+          {
+            "node": "Create Document Hub Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Document Hub Page": {
+      "main": [
+        [
+          {
+            "node": "Create Notion Upload Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Notion Upload Request": {
+      "main": [
+        [
+          {
+            "node": "Download File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download File": {
+      "main": [
+        [
+          {
+            "node": "Ingest Doc to Supabase",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Upload Doc to Notion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload Doc to Notion": {
+      "main": [
+        [
+          {
+            "node": "Add Doc File to Doc Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add Doc File to Doc Page": {
+      "main": [
+        [
+          {
+            "node": "Return Upload Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Return Upload Metadata": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "HcnfSwqswl0gRWmh",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "71266443-7460-4518-9e8d-bd9803a0b58b",
+  "id": "Wi7w80axbe7ioTQj",
+  "tags": []
+}

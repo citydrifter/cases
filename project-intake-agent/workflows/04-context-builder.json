@@ -1,0 +1,257 @@
+{
+  "name": "04 - Context Builder",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "jsonExample",
+        "jsonExample": "{\n  \"run_id\": \"a string\",\n  \"intake_page_id\": \"a string\",\n  \"project_page_id\": \"a string\",\n  \"status\": \"a string\"\n}"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "40164711-1f23-4bf8-bc4d-118b4cf18d08",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "const row = $input.first().json;\n\nlet intake = row.raw_intake || {};\nlet documents = row.documents || [];\n\nif (typeof intake === \"string\") {\n  intake = JSON.parse(intake);\n}\n\nif (typeof documents === \"string\") {\n  documents = JSON.parse(documents);\n}\n\nif (!Array.isArray(documents)) {\n  documents = [];\n}\n\nfunction firstArrayValue(value) {\n  if (Array.isArray(value)) return value[0] || null;\n  return value || null;\n}\n\nfunction dateStart(value) {\n  if (!value) return null;\n  if (typeof value === \"object\" && value.start) return value.start;\n  return value;\n}\n\nfunction cleanText(value) {\n  if (!value) return \"\";\n  return String(value).trim();\n}\n\nconst context = {\n  run_id: row.run_id,\n  project_id: row.project_page_id,\n  intake_page_id: row.intake_page_id,\n\n  project: {\n    requester_name: intake[\"Your name\"] || null,\n    respondent: intake[\"Respondent\"] || null,\n    department: intake[\"Your department\"] || null,\n    priority: firstArrayValue(intake[\"Priority\"]),\n    preferred_communication: firstArrayValue(intake[\"Preferred Communication\"]),\n    deadline: dateStart(intake[\"Deadline\"]),\n    submission_time: intake[\"Submission time\"] || null,\n\n    requested_solution: cleanText(intake[\"What do you need help with?\"]),\n    business_problem: cleanText(intake[\"Main business problem\"]),\n    definition_of_done: cleanText(intake[\"Definition of Done\"]),\n    success_metrics: cleanText(\n      intake[\"What would 'success' look like in 3 months? Please provide a specific metric\"]\n    )\n  },\n\n  sources: {\n    sop: [],\n    documentation: [],\n    screenshots: []\n  },\n\n  document_index: [],\n\n  stats: {\n    total_files: documents.length,\n    sop_count: 0,\n    documentation_count: 0,\n    screenshot_count: 0,\n    total_text_length: 0\n  }\n};\n\nfor (const doc of documents) {\n  const item = {\n    id: doc.id,\n    file_name: doc.file_name,\n    file_type: doc.file_type,\n    mime: doc.mime,\n\n    source_url: doc.source_url,\n    storage_url: doc.storage_url,\n    storage_bucket: doc.storage_bucket,\n    storage_path: doc.storage_path,\n\n    notion_document_page_id: doc.notion_document_page_id,\n    notion_file_upload_id: doc.notion_file_upload_id,\n    upload_status: doc.upload_status,\n\n    processing_status: doc.processing_status,\n    text: doc.extracted_text || \"\",\n    text_length: Number(doc.text_length || 0)\n  };\n\n  context.document_index.push({\n    file_name: item.file_name,\n    file_type: item.file_type,\n    mime: item.mime,\n    text_length: item.text_length,\n    processing_status: item.processing_status,\n    upload_status: item.upload_status,\n    notion_document_page_id: item.notion_document_page_id,\n    storage_path: item.storage_path\n  });\n\n  context.stats.total_text_length += item.text_length;\n\n  if (doc.file_type === \"sop\") {\n    context.sources.sop.push(item);\n    context.stats.sop_count++;\n  } else if (doc.file_type === \"documentation\") {\n    context.sources.documentation.push(item);\n    context.stats.documentation_count++;\n  } else if (doc.file_type === \"screenshot\") {\n    context.sources.screenshots.push(item);\n    context.stats.screenshot_count++;\n  }\n}\n\ncontext.has_files = context.stats.total_files > 0;\ncontext.has_sop = context.stats.sop_count > 0;\ncontext.has_documentation = context.stats.documentation_count > 0;\ncontext.has_screenshots = context.stats.screenshot_count > 0;\n\nreturn [{ json: context }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ],
+      "id": "71e80508-432a-4116-a251-b5716cf024ec",
+      "name": "Standardize Context"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n    r.run_id,\n    r.intake_page_id,\n    r.project_page_id,\n    r.raw_intake,\n    COALESCE(\n        jsonb_agg(\n            jsonb_build_object(\n                'id', d.id,\n                'file_name', d.file_name,\n                'file_type', d.file_type,\n                'mime', d.mime,\n                'source_url', d.source_url,\n\n                'storage_url', d.storage_url,\n                'storage_bucket', d.storage_bucket,\n                'storage_path', d.storage_path,\n\n                'notion_document_page_id', d.notion_document_page_id,\n                'notion_file_upload_id', d.notion_file_upload_id,\n                'upload_status', d.upload_status,\n\n                'extracted_text', d.extracted_text,\n                'text_length', d.text_length,\n                'processing_status', d.processing_status,\n                'created_at', d.created_at\n            )\n            ORDER BY d.created_at\n        ) FILTER (WHERE d.id IS NOT NULL),\n        '[]'::jsonb\n    ) AS documents\nFROM project_intake_runs r\nLEFT JOIN project_documents d\n    ON d.run_id = r.run_id\nWHERE r.run_id = $1\nGROUP BY\n    r.run_id,\n    r.intake_page_id,\n    r.project_page_id,\n    r.raw_intake;",
+        "options": {
+          "queryReplacement": "={{ [   $json.run_id ] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        0
+      ],
+      "id": "6a55bec6-4b0f-4e61-93e2-519fcbee0f9b",
+      "name": "Load Run Context"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $json;\n\nfunction limitText(text, max) {\n  if (!text) return \"\";\n  text = String(text);\n  return text.length > max ? text.slice(0, max) + \"\\n[TRUNCATED]\" : text;\n}\n\ndata.sources.sop = data.sources.sop.map(doc => ({\n  ...doc,\n  text: limitText(doc.text, 12000)\n}));\n\ndata.sources.documentation = data.sources.documentation.map(doc => ({\n  ...doc,\n  text: limitText(doc.text, 12000)\n}));\n\ndata.sources.screenshots = data.sources.screenshots.map(doc => ({\n  ...doc,\n  text: limitText(doc.text, 4000)\n}));\n\ndata.context_limits = {\n  sop_max_chars_per_file: 12000,\n  documentation_max_chars_per_file: 12000,\n  screenshot_max_chars_per_file: 4000\n};\n\nreturn [{ json: data }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ],
+      "id": "8f44843b-e554-4ba5-b776-7f99d6351421",
+      "name": "Limit AI Context"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE project_intake_runs\nSET normalized_context = $2::jsonb,\n    status = 'CONTEXT_READY',\n    updated_at = NOW()\nWHERE run_id = $1\nRETURNING\n    run_id,\n    intake_page_id,\n    project_page_id,\n    status;",
+        "options": {
+          "queryReplacement": "={{[  $json.run_id,  JSON.stringify($json)]}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        896,
+        0
+      ],
+      "id": "c92f8023-a299-497e-9b31-20607f1536ab",
+      "name": "Save Normalized Context"
+    },
+    {
+      "parameters": {
+        "jsCode": "const context = $('Limit AI Context').first().json;\nconst saved = $input.first().json;\n\nreturn [\n  {\n    json: {\n      run_id: saved.run_id,\n      intake_page_id: saved.intake_page_id,\n      project_page_id: saved.project_page_id,\n      status: saved.status,\n      normalized_context: context\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        0
+      ],
+      "id": "af8f33ab-89b3-4776-bc61-71b4798d8647",
+      "name": "Prepare AI Planner Input"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "eksi5ndN36OJaFay",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/eksi5ndN36OJaFay",
+          "cachedResultName": "05 - AI Planner"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "run_id": "={{ $json.run_id }}",
+            "intake_page_id": "={{ $json.intake_page_id }}",
+            "project_page_id": "={{ $json.project_page_id }}",
+            "status": "={{ $json.status }}",
+            "normalized_context": "={{ JSON.stringify($json.normalized_context) }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "run_id",
+              "displayName": "run_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "intake_page_id",
+              "displayName": "intake_page_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "project_page_id",
+              "displayName": "project_page_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "normalized_context",
+              "displayName": "normalized_context",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1344,
+        0
+      ],
+      "id": "f2af8b0f-8b92-442a-adfd-1c66c917919c",
+      "name": "Call 'AI Planner'"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Load Run Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Run Context": {
+      "main": [
+        [
+          {
+            "node": "Standardize Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Standardize Context": {
+      "main": [
+        [
+          {
+            "node": "Limit AI Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit AI Context": {
+      "main": [
+        [
+          {
+            "node": "Save Normalized Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Normalized Context": {
+      "main": [
+        [
+          {
+            "node": "Prepare AI Planner Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare AI Planner Input": {
+      "main": [
+        [
+          {
+            "node": "Call 'AI Planner'",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "HcnfSwqswl0gRWmh",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "2920effb-812a-4ad1-8015-a1d8aba360ea",
+  "id": "91hDG9Xj45s9VsP2",
+  "tags": []
+}

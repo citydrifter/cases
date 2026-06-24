@@ -1,0 +1,9 @@
+-- Status policy notes
+-- Notion Project Status must use only:
+-- New project, Not started, Discovery, Design, Development, Testing, Production, Done
+--
+-- Missing implementation inputs are not represented as a blocking status.
+-- AI Planner converts missing_information into one Discovery task:
+-- "Collect missing project inputs".
+--
+-- Error states are stored in PostgreSQL fields and project_events, not as Notion statuses.

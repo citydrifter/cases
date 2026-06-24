@@ -1,0 +1,494 @@
+{
+  "name": "01 - Intake Router",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "event": "pagedUpdatedInDatabase",
+        "databaseId": {
+          "__rl": true,
+          "value": "YOUR_NOTION_INTAKE_DB_ID",
+          "mode": "list",
+          "cachedResultName": "Project Intake Form",
+          "cachedResultUrl": "https://notion.so/YOUR_PAGE"
+        }
+      },
+      "type": "n8n-nodes-base.notionTrigger",
+      "typeVersion": 1,
+      "position": [
+        -272,
+        -288
+      ],
+      "id": "7ad79ed6-f68d-4047-bd6a-02a295c40dd8",
+      "name": "Notion Trigger"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "ff95c810-a7d4-4e31-bbc0-c32f2ab6f0aa",
+              "leftValue": "={{ $json['Status'] }}",
+              "rightValue": "New",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -48,
+        -288
+      ],
+      "id": "4bf50ec6-0d0b-4c4b-a7c7-cd2644f23cf4",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "databaseId": {
+          "__rl": true,
+          "value": "YOUR_NOTION_PROJECTS_DB_ID",
+          "mode": "list",
+          "cachedResultName": "Projects",
+          "cachedResultUrl": "https://notion.so/YOUR_PAGE"
+        },
+        "title": "={{ $fromAI('project_name') }}",
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "Status|status",
+              "statusValue": "=New project"
+            },
+            {
+              "key": "Client|select",
+              "selectValue": "={{ $fromAI('department') }}"
+            },
+            {
+              "key": "Deadline|date",
+              "includeTime": false,
+              "date": "={{ $fromAI('deadline') }}"
+            },
+            {
+              "key": "Owner|people",
+              "peopleValue": [
+                "YOUR_NOTION_OWNER_USER_ID"
+              ]
+            },
+            {
+              "key": "Priority|select",
+              "selectValue": "={{ $fromAI('priority') }}"
+            },
+            {
+              "key": "Project name|title",
+              "title": "={{ $fromAI('project_name') }}"
+            },
+            {
+              "key": "Project Description|rich_text",
+              "textContent": "={{ $fromAI('project_description') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.notionTool",
+      "typeVersion": 2.2,
+      "position": [
+        1152,
+        -64
+      ],
+      "id": "c6bf735b-f7f2-4f32-a3a4-c19b6a58cdd6",
+      "name": "notion_project_create"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gemma4:latest",
+          "mode": "list",
+          "cachedResultName": "gemma4:latest"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "={{ $json.toJsonString() }}"
+            }
+          ]
+        },
+        "options": {
+          "system": "Use notion_create_project tool and provide information needed based on input\n\nReturn ONLY new project_id as output without any additional information about creation process. Clean ID"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.ollama",
+      "typeVersion": 1,
+      "position": [
+        1072,
+        -288
+      ],
+      "id": "2c56f88f-90f5-4ff3-bbf8-0ecc85014c81",
+      "name": "Message a model"
+    },
+    {
+      "parameters": {
+        "jsCode": "const run = $input.first().json;\nconst intake = $('Prepare Router Input').first().json.raw_intake_object;\n\nreturn [\n  {\n    json: {\n      run_id: run.run_id,\n      intake_page_id: run.intake_page_id,\n      project_page_id: run.project_page_id,\n      raw_intake: intake\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2096,
+        -288
+      ],
+      "id": "3b2e0280-4a0c-4103-a40c-8aa8193c4e4a",
+      "name": "Prepare Attachment Processor Input"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "WORKFLOW_ID_ATTACHMENT_PROCESSOR",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/WORKFLOW_ID_ATTACHMENT_PROCESSOR",
+          "cachedResultName": "02 - Attachment Processor"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "run_id": "={{ $json.run_id }}",
+            "intake_page_id": "={{ $json.intake_page_id }}",
+            "project_page_id": "={{ $json.project_page_id }}",
+            "raw_intake": "={{ JSON.stringify($json.raw_intake) }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "run_id",
+              "displayName": "run_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "intake_page_id",
+              "displayName": "intake_page_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "project_page_id",
+              "displayName": "project_page_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "raw_intake",
+              "displayName": "raw_intake",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        2320,
+        -288
+      ],
+      "id": "531e5a79-c826-4638-ba91-af93468371f5",
+      "name": "Call 'Attachment Processor'"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO project_intake_runs (\n    intake_page_id,\n    status,\n    raw_intake\n)\nVALUES (\n    $1,\n    'ROUTING',\n    $2::jsonb\n)\nON CONFLICT (intake_page_id)\nDO UPDATE SET\n    raw_intake = EXCLUDED.raw_intake,\n    updated_at = NOW()\nRETURNING\n    run_id,\n    intake_page_id,\n    project_page_id,\n    status;",
+        "options": {
+          "queryReplacement": "={{ [   $json.intake_page_id,   $json.raw_intake ] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        400,
+        -288
+      ],
+      "id": "64d45ea5-55ed-4c38-b30b-13f70cf55f02",
+      "name": "Reserve Run"
+    },
+    {
+      "parameters": {
+        "jsCode": "const intake = $input.first().json;\n\nreturn [\n  {\n    json: {\n      intake_page_id: intake.id,\n      raw_intake: JSON.stringify(intake),\n      raw_intake_object: intake\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        176,
+        -288
+      ],
+      "id": "a4e40821-f1a3-4630-bc6b-e24adf69dc6d",
+      "name": "Prepare Router Input"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "8e44a4ff-36ed-4f2c-ac64-a9079e51932b",
+              "leftValue": "={{ $json.project_page_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        624,
+        -288
+      ],
+      "id": "5a484c3d-1345-4e70-8b1c-03a05e49eef3",
+      "name": "Needs Project?"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE project_intake_runs\nSET project_page_id = $2,\n    status = 'PROJECT_CREATED',\n    updated_at = NOW()\nWHERE run_id = $1\nRETURNING\n    run_id,\n    intake_page_id,\n    project_page_id,\n    status;",
+        "options": {
+          "queryReplacement": "={{\n[\n  $('Reserve Run').first().json.run_id,\n  $('Parse Clean Project ID').first().json.project_id\n]\n}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1648,
+        -288
+      ],
+      "id": "66954062-6e8f-407e-ada4-953b35af3afa",
+      "name": "Update Run With Project ID"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = String($json.project_id || $json.content || $json.output || '').trim();\n\nconst match = raw.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);\n\nif (!match) {\n  throw new Error(`No valid UUID found in input: ${raw}`);\n}\n\nreturn [\n  {\n    json: {\n      project_id: match[0]\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1424,
+        -288
+      ],
+      "id": "6b4a2bb9-f71e-485c-89f9-08486ca30bd3",
+      "name": "Parse Clean Project ID"
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "update",
+        "pageId": {
+          "__rl": true,
+          "value": "={{ $('Prepare Router Input').item.json.intake_page_id }}",
+          "mode": "id"
+        },
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "Status|status",
+              "statusValue": "Processing"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        848,
+        -288
+      ],
+      "id": "9219612a-153c-4e97-bf37-486a6b5c249f",
+      "name": "Update Intake Status to Processing"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Notion Trigger": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "notion_project_create": {
+      "ai_tool": [
+        [
+          {
+            "node": "Message a model",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "Parse Clean Project ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Prepare Router Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Attachment Processor Input": {
+      "main": [
+        [
+          {
+            "node": "Call 'Attachment Processor'",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reserve Run": {
+      "main": [
+        [
+          {
+            "node": "Needs Project?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Router Input": {
+      "main": [
+        [
+          {
+            "node": "Reserve Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Project?": {
+      "main": [
+        [
+          {
+            "node": "Update Intake Status to Processing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Run With Project ID": {
+      "main": [
+        [
+          {
+            "node": "Prepare Attachment Processor Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Clean Project ID": {
+      "main": [
+        [
+          {
+            "node": "Update Run With Project ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Intake Status to Processing": {
+      "main": [
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "HcnfSwqswl0gRWmh",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "a6b9e67d-794f-44ef-9b76-b68adb00592a",
+  "id": "CyS5XQ5c6CkEwA1V",
+  "tags": []
+}

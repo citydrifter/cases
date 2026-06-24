@@ -1,0 +1,450 @@
+{
+  "name": "06 - Notion Writer",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "jsonExample",
+        "jsonExample": "{\n  \"run_id\": \"a string\",\n  \"intake_page_id\": \"a string\",\n  \"project_page_id\": \"a string\",\n  \"status\": \"a string\",\n  \"task_count\": 123,\n  \"ai_plan\": null\n}"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        -96
+      ],
+      "id": "aec7eead-8870-49dd-86b9-8c28ab660cb4",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n    run_id,\n    intake_page_id,\n    project_page_id,\n    status,\n    ai_plan\nFROM project_intake_runs\nWHERE run_id = $1;",
+        "options": {
+          "queryReplacement": "={{[  $json.run_id]}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        -96
+      ],
+      "id": "4c822114-8ba2-450c-8f2e-ee42caabb206",
+      "name": "Load Writer Context"
+    },
+    {
+      "parameters": {
+        "jsCode": "const row = $input.first().json;\n\nlet plan = row.ai_plan || {};\n\nif (typeof plan === 'string') {\n  plan = JSON.parse(plan);\n}\n\nfunction cleanText(value) {\n  if (!value) return '';\n  return String(value).trim();\n}\n\nfunction limitText(value, max = 1800) {\n  const text = cleanText(value);\n  return text.length > max ? text.slice(0, max) + '\n[TRUNCATED]' : text;\n}\n\nfunction normalizeProjectStatus(value, fallback = 'Discovery') {\n  const allowed = ['New project', 'Not started', 'Discovery', 'Design', 'Development', 'Testing', 'Production', 'Done'];\n  if (!value) return fallback;\n  const clean = String(value).trim();\n  return allowed.includes(clean) ? clean : fallback;\n}\n\nconst projectDescription = limitText([\n  plan.project_summary ? `Summary:\n${plan.project_summary}` : '',\n  plan.business_problem ? `\nBusiness problem:\n${plan.business_problem}` : '',\n  plan.desired_outcome ? `\nDesired outcome:\n${plan.desired_outcome}` : '',\n  plan.workflow_design ? `\nWorkflow design:\n${plan.workflow_design}` : ''\n].filter(Boolean).join('\n\n'), 1900);\n\nconst projectStatus = normalizeProjectStatus(row.project_status || plan.project_status || row.status || 'Discovery');\n\nreturn [\n  {\n    json: {\n      run_id: row.run_id,\n      intake_page_id: row.intake_page_id,\n      project_page_id: row.project_page_id,\n      ai_plan: plan,\n      project_description: projectDescription,\n      project_status: projectStatus,\n      task_count: Number(plan.task_count || 0)\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        -96
+      ],
+      "id": "6b14722b-077c-4672-a654-ba584cd8b509",
+      "name": "Prepare Project Update"
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "update",
+        "pageId": {
+          "__rl": true,
+          "value": "={{ $json.project_page_id }}",
+          "mode": "id"
+        },
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "Project Description|rich_text",
+              "textContent": "={{ $json.project_description }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        672,
+        -96
+      ],
+      "id": "22357af8-8fe7-44aa-9209-0de4d8381432",
+      "name": "Update Notion Project"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n    r.run_id,\n    r.intake_page_id,\n    r.project_page_id,\n    COALESCE(\n        jsonb_agg(\n            jsonb_build_object(\n                'id', t.id,\n                'run_id', t.run_id,\n                'project_page_id', t.project_page_id,\n                'task_key', t.task_key,\n                'task_name', t.task_name,\n                'task_description', t.task_description,\n                'task_stage', t.task_stage,\n                'task_status', t.task_status,\n                'priority', t.priority,\n                'effort_level', t.effort_level,\n                'deadline', t.deadline,\n                'task_order', t.task_order\n            )\n            ORDER BY t.task_order NULLS LAST, t.created_at\n        ) FILTER (WHERE t.id IS NOT NULL),\n        '[]'::jsonb\n    ) AS tasks\nFROM project_intake_runs r\nLEFT JOIN project_tasks t\n    ON t.run_id = r.run_id\n   AND t.notion_task_id IS NULL\nWHERE r.run_id = $1\nGROUP BY\n    r.run_id,\n    r.intake_page_id,\n    r.project_page_id;",
+        "options": {
+          "queryReplacement": "={{[  $('Prepare Project Update').first().json.run_id]}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        896,
+        -96
+      ],
+      "id": "b968b5f0-bfb1-42f9-9756-9afe71c11608",
+      "name": "Load Pending Task Rows"
+    },
+    {
+      "parameters": {
+        "jsCode": "const row = $input.first().json;\n\nlet tasks = row.tasks || [];\n\nif (typeof tasks === \"string\") {\n  tasks = JSON.parse(tasks);\n}\n\nif (!Array.isArray(tasks) || tasks.length === 0) {\n  return [\n    {\n      json: {\n        no_pending_tasks: true,\n        run_id: row.run_id,\n        intake_page_id: row.intake_page_id,\n        project_page_id: row.project_page_id\n      }\n    }\n  ];\n}\n\nreturn tasks.map(task => ({\n  json: {\n    no_pending_tasks: false,\n\n    db_task_id: task.id,\n    run_id: task.run_id,\n    intake_page_id: row.intake_page_id,\n    project_page_id: task.project_page_id,\n\n    task_key: task.task_key,\n    task_name: task.task_name,\n    task_description: task.task_description || \"\",\n    task_stage: task.task_stage || \"Discovery\",\n    task_status: task.task_status || \"Not started\",\n    priority: task.priority || \"Medium\",\n    effort_level: task.effort_level || \"Medium\",\n    deadline: task.deadline || null,\n    task_order: task.task_order || null\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        -96
+      ],
+      "id": "8e66c999-804f-4b82-8d30-a65dcff83188",
+      "name": "Build Notion Task Items"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "fdb4c8cb-900b-44f7-8503-410dd1501d73",
+              "leftValue": "={{ $json.no_pending_tasks }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1344,
+        -96
+      ],
+      "id": "8831eec9-07f4-410b-918c-2956fe375d08",
+      "name": "Has Pending Tasks?"
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "databaseId": {
+          "__rl": true,
+          "value": "358de429-82a9-8049-99e4-f8ad7e81a045",
+          "mode": "list",
+          "cachedResultName": "Tasks Tracker",
+          "cachedResultUrl": "https://notion.so/YOUR_PAGE"
+        },
+        "title": "={{ $json.task_name }}",
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "Task name|title",
+              "title": "={{ $json.task_name }}"
+            },
+            {
+              "key": "Task Description|rich_text",
+              "textContent": "={{ $json.task_description }}"
+            },
+            {
+              "key": "Task Stage|select",
+              "selectValue": "={{ $json.task_stage }}"
+            },
+            {
+              "key": "Task Status|status",
+              "statusValue": "={{ $json.task_status }}"
+            },
+            {
+              "key": "Priority|select",
+              "selectValue": "={{ $json.priority }}"
+            },
+            {
+              "key": "Effort level|select",
+              "selectValue": "={{ $json.effort_level }}"
+            },
+            {
+              "key": "Project Relation|relation",
+              "relationValue": [
+                "={{ $json.project_page_id }}"
+              ]
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        1792,
+        0
+      ],
+      "id": "31442a30-5f77-4ab1-8e6e-9949632c09ca",
+      "name": "Create Notion Task"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE project_tasks\nSET notion_task_id = $2,\n    created_in_notion = TRUE,\n    updated_at = NOW()\nWHERE id = $1\nRETURNING\n    id,\n    run_id,\n    notion_task_id,\n    task_name;",
+        "options": {
+          "queryReplacement": "={{[  $('Loop Over Task Items').item.json.db_task_id,  $json.id]}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2016,
+        96
+      ],
+      "id": "dddc15fe-aa6e-4277-afee-76212cc18a0f",
+      "name": "Save Notion Task ID"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE project_intake_runs\nSET status = 'COMPLETED',\n    updated_at = NOW()\nWHERE run_id = $1\nRETURNING\n    run_id,\n    intake_page_id,\n    project_page_id,\n    status;",
+        "options": {
+          "queryReplacement": "={{[  $('Prepare Project Update').first().json.run_id]}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1792,
+        -192
+      ],
+      "id": "0e5c0334-16a5-478b-9a8c-76f11e74802e",
+      "name": "Mark Run Completed"
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "update",
+        "pageId": {
+          "__rl": true,
+          "value": "={{ $json.intake_page_id }}",
+          "mode": "id"
+        },
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "Tasks Created|checkbox",
+              "checkboxValue": true
+            },
+            {
+              "key": "Status|status",
+              "statusValue": "Done"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        2016,
+        -192
+      ],
+      "id": "7a768eec-95b8-4be8-83af-5b3b9048f25d",
+      "name": "Mark Intake Done"
+    },
+    {
+      "parameters": {
+        "jsCode": "const run = $input.first().json;\nconst project = $('Prepare Project Update').first().json;\n\nreturn [\n  {\n    json: {\n      run_id: run.run_id,\n      intake_page_id: run.intake_page_id,\n      project_page_id: run.project_page_id,\n      status: run.status,\n      task_count: project.task_count,\n      message: \"Project intake workflow completed successfully\"\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        -192
+      ],
+      "id": "e2081292-3493-4cb2-8b86-54eadbde9b05",
+      "name": "Return Completion Summary"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1568,
+        0
+      ],
+      "id": "3792a5f2-bb03-43fe-8cf0-b312ae07dcbd",
+      "name": "Loop Over Task Items"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Load Writer Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Writer Context": {
+      "main": [
+        [
+          {
+            "node": "Prepare Project Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Project Update": {
+      "main": [
+        [
+          {
+            "node": "Update Notion Project",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Notion Project": {
+      "main": [
+        [
+          {
+            "node": "Load Pending Task Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Pending Task Rows": {
+      "main": [
+        [
+          {
+            "node": "Build Notion Task Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Notion Task Items": {
+      "main": [
+        [
+          {
+            "node": "Has Pending Tasks?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Pending Tasks?": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Task Items",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Run Completed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Notion Task": {
+      "main": [
+        [
+          {
+            "node": "Save Notion Task ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Notion Task ID": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Task Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Run Completed": {
+      "main": [
+        [
+          {
+            "node": "Mark Intake Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Intake Done": {
+      "main": [
+        [
+          {
+            "node": "Return Completion Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Task Items": {
+      "main": [
+        [
+          {
+            "node": "Mark Run Completed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Notion Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "HcnfSwqswl0gRWmh",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "e5638ec2-f989-446f-bf2b-f343ec0d1562",
+  "id": "sSp80ClE08lCnb9z",
+  "tags": []
+}

@@ -1,0 +1,1283 @@
+{
+  "name": "02 - Attachment Processor",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "jsonExample",
+        "jsonExample": "{\n  \"run_id\": \"string\",\n  \"intake_page_id\": \"string\",\n  \"project_page_id\": \"string\",\n  \"raw_intake\": null\n}"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        736
+      ],
+      "id": "4933d28c-d7ba-4034-ba2f-5b1b606aff84",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nconst runId = input.run_id;\nconst intakePageId = input.intake_page_id;\nconst projectPageId = input.project_page_id;\n\nlet intake = input.raw_intake || {};\n\nif (typeof intake === \"string\") {\n  try {\n    intake = JSON.parse(intake);\n  } catch (error) {\n    throw new Error(`raw_intake is not valid JSON: ${error.message}`);\n  }\n}\n\nconst output = [];\n\nfunction detectMime(url) {\n  if (!url) return null;\n\n  const clean = url.split(\"?\")[0].toLowerCase();\n\n  if (clean.endsWith(\".pdf\")) return \"pdf\";\n  if (clean.endsWith(\".docx\")) return \"docx\";\n  if (clean.endsWith(\".png\")) return \"png\";\n  if (clean.endsWith(\".jpg\")) return \"jpg\";\n  if (clean.endsWith(\".jpeg\")) return \"jpeg\";\n  if (clean.endsWith(\".webp\")) return \"webp\";\n\n  return null;\n}\n\nfunction extractFileName(url) {\n  if (!url) return null;\n\n  const clean = url.split(\"?\")[0];\n  const parts = clean.split(\"/\");\n  return decodeURIComponent(parts[parts.length - 1]);\n}\n\nfunction addFiles(urls, sourceCategory) {\n  if (!Array.isArray(urls)) return;\n\n  for (const url of urls) {\n    if (!url) continue;\n\n    const mime = detectMime(url);\n    if (!mime) continue;\n\n    const fileKind = [\"png\", \"jpg\", \"jpeg\", \"webp\"].includes(mime)\n      ? \"screenshot\"\n      : sourceCategory;\n\n    output.push({\n      json: {\n        run_id: runId,\n        intake_page_id: intakePageId,\n        project_page_id: projectPageId,\n        file_name: extractFileName(url),\n        file_type: fileKind,\n        mime,\n        source_url: url,\n        skip_files: false\n      }\n    });\n  }\n}\n\naddFiles(intake[\"Current state SOP (DOCX or PDF files)\"], \"sop\");\naddFiles(intake[\"Existing documentation (DOCX or PDF files)\"], \"documentation\");\naddFiles(intake[\"Screenshots\"], \"screenshot\");\n\nif (output.length === 0) {\n  return [\n    {\n      json: {\n        run_id: runId,\n        intake_page_id: intakePageId,\n        project_page_id: projectPageId,\n        skip_files: true\n      }\n    }\n  ];\n}\n\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        736
+      ],
+      "id": "2ea6a56c-2807-49f0-a5fc-dd0598462e5e",
+      "name": "Extract Attachment Items"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE project_intake_runs\nSET status = 'INGESTING_FILES',\n    updated_at = NOW()\nWHERE run_id = $1\nRETURNING\n    run_id,\n    intake_page_id,\n    project_page_id,\n    raw_intake,\n    status;",
+        "options": {
+          "queryReplacement": "={{\n[\n  $json.run_id\n]\n}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        736
+      ],
+      "id": "b068a428-3b33-4802-abdc-421f920724bf",
+      "name": "Mark Run INGESTING_FILES"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "ce1a61ec-f067-4dc1-a08f-ae3229d54727",
+              "leftValue": "={{ $json.skip_files }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        672,
+        736
+      ],
+      "id": "b927c2dc-06d9-4efb-87aa-2934597f14b1",
+      "name": "Has Attachments?"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [\n  {\n    json: {\n      run_id: $json.run_id,\n      intake_page_id: $json.intake_page_id,\n      project_page_id: $json.project_page_id,\n      no_files: true\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        880
+      ],
+      "id": "e5167dcd-b5cb-435e-97cf-1ae2fadde38a",
+      "name": "No Files Placeholder"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.mime }}",
+                    "rightValue": "pdf",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "e69e8a51-f84a-4563-8be7-3962f366d5fa"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "pdf"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "f49478dd-6e37-4e30-8a67-05f6c0a0f328",
+                    "leftValue": "={{ $json.mime }}",
+                    "rightValue": "docx",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "docx"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "82b513c5-dba2-45a9-b0c6-8a24d788ea03",
+                    "leftValue": "={{ $json.mime }}",
+                    "rightValue": "png",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "png"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "7602f016-71f9-4b29-90d0-9ebc7101d0c2",
+                    "leftValue": "={{ $json.mime }}",
+                    "rightValue": "jpg",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "jpg"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "6e765ee8-026f-4936-a3c0-507d56bfc59f",
+                    "leftValue": "={{ $json.mime }}",
+                    "rightValue": "jpeg",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "jpeg"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "ab392358-0fdc-472d-8a98-37a2afbad5ae",
+                    "leftValue": "={{ $json.mime }}",
+                    "rightValue": "webp",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "webp"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        1120,
+        -304
+      ],
+      "id": "3d52b2ab-f9b4-4ec3-8df6-0b9d48d89709",
+      "name": "Switch by File Type"
+    },
+    {
+      "parameters": {
+        "operation": "Convert from PDF",
+        "url": "={{ $json.source_url }}",
+        "advancedOptions": {}
+      },
+      "type": "n8n-nodes-pdfco.PDFco Api",
+      "typeVersion": 1,
+      "position": [
+        1344,
+        -432
+      ],
+      "id": "8f9e0c98-200c-4882-ab58-faaea5b59204",
+      "name": "Convert PDF to Text"
+    },
+    {
+      "parameters": {
+        "jsCode": "const meta = $('Switch by File Type').item.json;\n\nconst text =\n  $json.body ||\n  $json.text ||\n  $json.output ||\n  \"\";\n\nreturn [\n  {\n    json: {\n      run_id: meta.run_id,\n      project_page_id: meta.project_page_id,\n      file_name: meta.file_name,\n      file_type: meta.file_type,\n      mime: meta.mime,\n      source_url: meta.source_url,\n      storage_url: null,\n      extracted_text: String(text || \"\"),\n      text_length: String(text || \"\").length,\n      processing_status: \"processed\"\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1632,
+        -432
+      ],
+      "id": "fd57098d-3cdd-421f-b6b5-10b927cf4e6f",
+      "name": "Prepare PDF Document Row"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.source_url }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1344,
+        -240
+      ],
+      "id": "f209ffab-51f6-41a7-b80b-f71a9cd9e00a",
+      "name": "Download DOCX"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-docx-converter.docxToText",
+      "typeVersion": 1,
+      "position": [
+        1632,
+        -240
+      ],
+      "id": "79cd3ef5-bf1d-4141-aed3-dd527602279f",
+      "name": "DOCX to Text"
+    },
+    {
+      "parameters": {
+        "jsCode": "const meta = $('Switch by File Type').item.json;\n\nconst text =\n  $json.text ||\n  $json.body ||\n  $json.output ||\n  \"\";\n\nreturn [\n  {\n    json: {\n      run_id: meta.run_id,\n      project_page_id: meta.project_page_id,\n      file_name: meta.file_name,\n      file_type: meta.file_type,\n      mime: meta.mime,\n      source_url: meta.source_url,\n      storage_url: null,\n      extracted_text: String(text || \"\"),\n      text_length: String(text || \"\").length,\n      processing_status: \"processed\"\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        -240
+      ],
+      "id": "1c53d49b-59ec-43f3-8c55-6e82f7501518",
+      "name": "Prepare DOCX Document Row"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.source_url }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1344,
+        64
+      ],
+      "id": "4c7d072b-d4fb-4f6d-9437-8fd111b82e8b",
+      "name": "Download Screenshot"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Describe this screenshot for an automation engineer.\n\nFocus on:\n- visible tools\n- UI structure\n- databases/tables\n- workflow elements\n- possible requirements\n- anything relevant for project planning\n\nReturn concise structured text.\n\n{{ $binary.data }}",
+        "options": {
+          "passthroughBinaryImages": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        1568,
+        -48
+      ],
+      "id": "ff00fd5f-9854-44da-937a-98ea8c51d510",
+      "name": "Describe Screenshots"
+    },
+    {
+      "parameters": {
+        "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        1648,
+        176
+      ],
+      "id": "f3e2a1e1-775c-4511-bc0b-e2c38abe53fc",
+      "name": "Groq Chat Model"
+    },
+    {
+      "parameters": {
+        "jsCode": "const meta = $('Switch by File Type').item.json;\n\nconst text =\n  $json.output ||\n  $json.text ||\n  $json.content ||\n  \"\";\n\nreturn [\n  {\n    json: {\n      run_id: meta.run_id,\n      project_page_id: meta.project_page_id,\n      file_name: meta.file_name,\n      file_type: \"screenshot\",\n      mime: meta.mime,\n      source_url: meta.source_url,\n      storage_url: null,\n      extracted_text: String(text || \"\"),\n      text_length: String(text || \"\").length,\n      processing_status: \"processed\"\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        64
+      ],
+      "id": "c8e3a5c1-9d2c-4d01-9f20-57ea9e76c010",
+      "name": "Prepare Screenshot Document Row"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE project_intake_runs\nSET status = 'FILES_READY',\n    updated_at = NOW()\nWHERE run_id = $1\nRETURNING\n    run_id,\n    intake_page_id,\n    project_page_id,\n    status;",
+        "options": {
+          "queryReplacement": "={{ [   $('When Executed by Another Workflow').first().json.run_id ] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1120,
+        352
+      ],
+      "id": "62157b13-750c-4614-bd90-c821abb09eb2",
+      "name": "Mark Run FILES_READY"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $('When Executed by Another Workflow').first().json;\nconst run = $input.first().json;\n\nreturn [\n  {\n    json: {\n      run_id: input.run_id,\n      intake_page_id: input.intake_page_id,\n      project_page_id: input.project_page_id,\n      raw_intake: input.raw_intake,\n      status: run.status\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        352
+      ],
+      "id": "8f045981-fe96-4997-84e6-c783b71e2a9e",
+      "name": "Prepare Context Builder Input"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO project_documents (\n    run_id,\n    project_page_id,\n    file_name,\n    file_type,\n    mime,\n    source_url,\n\n    storage_url,\n    storage_bucket,\n    storage_path,\n\n    notion_document_page_id,\n    notion_file_upload_id,\n    upload_status,\n\n    extracted_text,\n    text_length,\n    processing_status\n)\nVALUES (\n    $1,\n    $2,\n    $3,\n    $4,\n    $5,\n    $6,\n\n    $7,\n    $8,\n    $9,\n\n    $10,\n    $11,\n    $12,\n\n    $13,\n    $14,\n    $15\n)\nON CONFLICT (run_id, file_name, file_type)\nDO UPDATE SET\n    mime = EXCLUDED.mime,\n    source_url = EXCLUDED.source_url,\n\n    storage_url = EXCLUDED.storage_url,\n    storage_bucket = EXCLUDED.storage_bucket,\n    storage_path = EXCLUDED.storage_path,\n\n    notion_document_page_id = EXCLUDED.notion_document_page_id,\n    notion_file_upload_id = EXCLUDED.notion_file_upload_id,\n    upload_status = EXCLUDED.upload_status,\n\n    extracted_text = EXCLUDED.extracted_text,\n    text_length = EXCLUDED.text_length,\n    processing_status = EXCLUDED.processing_status,\n    updated_at = NOW()\nRETURNING *;",
+        "options": {
+          "queryReplacement": "={{\n[\n  $json.run_id,\n  $json.project_page_id,\n  $json.file_name,\n  $json.file_type,\n  $json.mime,\n  $json.source_url,\n\n  $json.storage_url || null,\n  $json.storage_bucket || null,\n  $json.storage_path || null,\n\n  $json.notion_document_page_id || null,\n  $json.notion_file_upload_id || null,\n  $json.upload_status || null,\n\n  $json.extracted_text || \"\",\n  $json.text_length || 0,\n  $json.processing_status || \"processed\"\n]\n}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2592,
+        432
+      ],
+      "id": "0ea7d066-ba61-4032-a41b-7d71e2d0cff1",
+      "name": "Insert Screenshot Row"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO project_documents (\n    run_id,\n    project_page_id,\n    file_name,\n    file_type,\n    mime,\n    source_url,\n\n    storage_url,\n    storage_bucket,\n    storage_path,\n\n    notion_document_page_id,\n    notion_file_upload_id,\n    upload_status,\n\n    extracted_text,\n    text_length,\n    processing_status\n)\nVALUES (\n    $1,\n    $2,\n    $3,\n    $4,\n    $5,\n    $6,\n\n    $7,\n    $8,\n    $9,\n\n    $10,\n    $11,\n    $12,\n\n    $13,\n    $14,\n    $15\n)\nON CONFLICT (run_id, file_name, file_type)\nDO UPDATE SET\n    mime = EXCLUDED.mime,\n    source_url = EXCLUDED.source_url,\n\n    storage_url = EXCLUDED.storage_url,\n    storage_bucket = EXCLUDED.storage_bucket,\n    storage_path = EXCLUDED.storage_path,\n\n    notion_document_page_id = EXCLUDED.notion_document_page_id,\n    notion_file_upload_id = EXCLUDED.notion_file_upload_id,\n    upload_status = EXCLUDED.upload_status,\n\n    extracted_text = EXCLUDED.extracted_text,\n    text_length = EXCLUDED.text_length,\n    processing_status = EXCLUDED.processing_status,\n    updated_at = NOW()\nRETURNING *;",
+        "options": {
+          "queryReplacement": "={{\n[\n  $json.run_id,\n  $json.project_page_id,\n  $json.file_name,\n  $json.file_type,\n  $json.mime,\n  $json.source_url,\n\n  $json.storage_url || null,\n  $json.storage_bucket || null,\n  $json.storage_path || null,\n\n  $json.notion_document_page_id || null,\n  $json.notion_file_upload_id || null,\n  $json.upload_status || null,\n\n  $json.extracted_text || \"\",\n  $json.text_length || 0,\n  $json.processing_status || \"processed\"\n]\n}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2368,
+        -336
+      ],
+      "id": "992104f8-ee3b-46be-b3e6-3085a2871b5f",
+      "name": "Insert PDF Row"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO project_documents (\n    run_id,\n    project_page_id,\n    file_name,\n    file_type,\n    mime,\n    source_url,\n\n    storage_url,\n    storage_bucket,\n    storage_path,\n\n    notion_document_page_id,\n    notion_file_upload_id,\n    upload_status,\n\n    extracted_text,\n    text_length,\n    processing_status\n)\nVALUES (\n    $1,\n    $2,\n    $3,\n    $4,\n    $5,\n    $6,\n\n    $7,\n    $8,\n    $9,\n\n    $10,\n    $11,\n    $12,\n\n    $13,\n    $14,\n    $15\n)\nON CONFLICT (run_id, file_name, file_type)\nDO UPDATE SET\n    mime = EXCLUDED.mime,\n    source_url = EXCLUDED.source_url,\n\n    storage_url = EXCLUDED.storage_url,\n    storage_bucket = EXCLUDED.storage_bucket,\n    storage_path = EXCLUDED.storage_path,\n\n    notion_document_page_id = EXCLUDED.notion_document_page_id,\n    notion_file_upload_id = EXCLUDED.notion_file_upload_id,\n    upload_status = EXCLUDED.upload_status,\n\n    extracted_text = EXCLUDED.extracted_text,\n    text_length = EXCLUDED.text_length,\n    processing_status = EXCLUDED.processing_status,\n    updated_at = NOW()\nRETURNING *;",
+        "options": {
+          "queryReplacement": "={{\n[\n  $json.run_id,\n  $json.project_page_id,\n  $json.file_name,\n  $json.file_type,\n  $json.mime,\n  $json.source_url,\n\n  $json.storage_url || null,\n  $json.storage_bucket || null,\n  $json.storage_path || null,\n\n  $json.notion_document_page_id || null,\n  $json.notion_file_upload_id || null,\n  $json.upload_status || null,\n\n  $json.extracted_text || \"\",\n  $json.text_length || 0,\n  $json.processing_status || \"processed\"\n]\n}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2592,
+        176
+      ],
+      "id": "a75bc970-7957-4440-886f-220a1759b472",
+      "name": "Insert DOCX Row"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "Wi7w80axbe7ioTQj",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/Wi7w80axbe7ioTQj",
+          "cachedResultName": "Reusable Asset Uploader"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "run_id": "={{ $json.run_id }}",
+            "project_page_id": "={{$json.project_page_id}}",
+            "file_name": "={{$json.file_name}}",
+            "file_type": "={{$json.file_type}}",
+            "mime": "={{$json.mime}}",
+            "source_url": "={{$json.source_url}}",
+            "intake_page_id": "={{ $('When Executed by Another Workflow').first().json.intake_page_id }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "run_id",
+              "displayName": "run_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "intake_page_id",
+              "displayName": "intake_page_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "project_page_id",
+              "displayName": "project_page_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "file_name",
+              "displayName": "file_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "file_type",
+              "displayName": "file_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "mime",
+              "displayName": "mime",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "source_url",
+              "displayName": "source_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1920,
+        -432
+      ],
+      "id": "10a7b4a3-fdc2-4957-8796-4f224e2eb96c",
+      "name": "Upload PDF File to Notion and Supabase"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "Wi7w80axbe7ioTQj",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/Wi7w80axbe7ioTQj",
+          "cachedResultName": "Reusable Asset Uploader"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "run_id": "={{ $json.run_id }}",
+            "intake_page_id": "={{ $('When Executed by Another Workflow').first().json.intake_page_id }}",
+            "project_page_id": "={{$json.project_page_id}}",
+            "file_name": "={{$json.file_name}}",
+            "file_type": "={{$json.file_type}}",
+            "mime": "={{$json.mime}}",
+            "source_url": "={{$json.source_url}}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "run_id",
+              "displayName": "run_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "intake_page_id",
+              "displayName": "intake_page_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "project_page_id",
+              "displayName": "project_page_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "file_name",
+              "displayName": "file_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "file_type",
+              "displayName": "file_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "mime",
+              "displayName": "mime",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "source_url",
+              "displayName": "source_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        2144,
+        -240
+      ],
+      "id": "73dd812e-e4b7-49ce-995c-75ebf3e1ae3c",
+      "name": "Upload DOCX File to Notion and Supabase"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "Wi7w80axbe7ioTQj",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/Wi7w80axbe7ioTQj",
+          "cachedResultName": "Reusable Asset Uploader"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "run_id": "={{ $json.run_id }}",
+            "intake_page_id": "={{ $('When Executed by Another Workflow').first().json.intake_page_id }}",
+            "project_page_id": "={{$json.project_page_id}}",
+            "file_name": "={{$json.file_name}}",
+            "file_type": "={{$json.file_type}}",
+            "mime": "={{$json.mime}}",
+            "source_url": "={{$json.source_url}}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "run_id",
+              "displayName": "run_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "intake_page_id",
+              "displayName": "intake_page_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "project_page_id",
+              "displayName": "project_page_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "file_name",
+              "displayName": "file_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "file_type",
+              "displayName": "file_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "mime",
+              "displayName": "mime",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "source_url",
+              "displayName": "source_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        2144,
+        64
+      ],
+      "id": "b7c40875-8994-4c20-b5ba-241d853fed78",
+      "name": "Upload Screenshot File to Notion and Supabase"
+    },
+    {
+      "parameters": {
+        "jsCode": "const extracted = $('Prepare PDF Document Row').item.json;\nconst upload = $input.item.json;\n\nreturn [{\n  json: {\n    ...extracted,\n\n    storage_bucket: upload.storage_bucket || null,\n    storage_path: upload.storage_path || null,\n    storage_url: upload.storage_url || null,\n\n    notion_document_page_id: upload.notion_document_page_id || null,\n    notion_file_upload_id: upload.notion_file_upload_id || null,\n    upload_status: upload.upload_status || null\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2144,
+        -432
+      ],
+      "id": "f37d73a7-ec5f-440c-af9c-b03301683ab4",
+      "name": "PDF Combine Upload + Extraction"
+    },
+    {
+      "parameters": {
+        "jsCode": "const extracted = $('Prepare DOCX Document Row').item.json;\nconst upload = $input.item.json;\n\nreturn [{\n  json: {\n    ...extracted,\n\n    storage_bucket: upload.storage_bucket || null,\n    storage_path: upload.storage_path || null,\n    storage_url: upload.storage_url || null,\n\n    notion_document_page_id: upload.notion_document_page_id || null,\n    notion_file_upload_id: upload.notion_file_upload_id || null,\n    upload_status: upload.upload_status || null\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2368,
+        -144
+      ],
+      "id": "ed8a3370-57de-44aa-b87d-3581945060ff",
+      "name": "DOCX Combine Upload + Extraction"
+    },
+    {
+      "parameters": {
+        "jsCode": "const extracted = $('Prepare Screenshot Document Row').item.json;\nconst upload = $input.item.json;\n\nreturn [{\n  json: {\n    ...extracted,\n\n    storage_bucket: upload.storage_bucket || null,\n    storage_path: upload.storage_path || null,\n    storage_url: upload.storage_url || null,\n\n    notion_document_page_id: upload.notion_document_page_id || null,\n    notion_file_upload_id: upload.notion_file_upload_id || null,\n    upload_status: upload.upload_status || null\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2368,
+        160
+      ],
+      "id": "c4d45895-25f7-428a-9fa6-c51e53a37132",
+      "name": "Screenshot Combine Upload + Extraction"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        896,
+        336
+      ],
+      "id": "e1e46c35-65a8-44bd-9d94-cf59b20baa34",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "91hDG9Xj45s9VsP2",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/91hDG9Xj45s9VsP2",
+          "cachedResultName": "04 - Context Builder"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "run_id": "={{ $json.run_id }}",
+            "intake_page_id": "={{ $json.intake_page_id }}",
+            "project_page_id": "={{ $json.project_page_id }}",
+            "status": "={{$json.status}}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "run_id",
+              "displayName": "run_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "intake_page_id",
+              "displayName": "intake_page_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "project_page_id",
+              "displayName": "project_page_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1632,
+        352
+      ],
+      "id": "dc3c8be7-7f6d-46e2-ad64-975112fc8973",
+      "name": "Call '04 - Context Builder'"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Mark Run INGESTING_FILES",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Run INGESTING_FILES": {
+      "main": [
+        [
+          {
+            "node": "Extract Attachment Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Attachment Items": {
+      "main": [
+        [
+          {
+            "node": "Has Attachments?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Attachments?": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Files Placeholder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch by File Type": {
+      "main": [
+        [
+          {
+            "node": "Convert PDF to Text",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Download DOCX",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Download Screenshot",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Download Screenshot",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Download Screenshot",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Download Screenshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert PDF to Text": {
+      "main": [
+        [
+          {
+            "node": "Prepare PDF Document Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download DOCX": {
+      "main": [
+        [
+          {
+            "node": "DOCX to Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DOCX to Text": {
+      "main": [
+        [
+          {
+            "node": "Prepare DOCX Document Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Screenshot": {
+      "main": [
+        [
+          {
+            "node": "Describe Screenshots",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Describe Screenshots",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Describe Screenshots": {
+      "main": [
+        [
+          {
+            "node": "Prepare Screenshot Document Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare PDF Document Row": {
+      "main": [
+        [
+          {
+            "node": "Upload PDF File to Notion and Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Screenshot Document Row": {
+      "main": [
+        [
+          {
+            "node": "Upload Screenshot File to Notion and Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare DOCX Document Row": {
+      "main": [
+        [
+          {
+            "node": "Upload DOCX File to Notion and Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Run FILES_READY": {
+      "main": [
+        [
+          {
+            "node": "Prepare Context Builder Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Screenshot Row": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert PDF Row": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert DOCX Row": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload PDF File to Notion and Supabase": {
+      "main": [
+        [
+          {
+            "node": "PDF Combine Upload + Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PDF Combine Upload + Extraction": {
+      "main": [
+        [
+          {
+            "node": "Insert PDF Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload DOCX File to Notion and Supabase": {
+      "main": [
+        [
+          {
+            "node": "DOCX Combine Upload + Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DOCX Combine Upload + Extraction": {
+      "main": [
+        [
+          {
+            "node": "Insert DOCX Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload Screenshot File to Notion and Supabase": {
+      "main": [
+        [
+          {
+            "node": "Screenshot Combine Upload + Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Screenshot Combine Upload + Extraction": {
+      "main": [
+        [
+          {
+            "node": "Insert Screenshot Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No Files Placeholder": {
+      "main": [
+        [
+          {
+            "node": "Mark Run FILES_READY",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Mark Run FILES_READY",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Switch by File Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Context Builder Input": {
+      "main": [
+        [
+          {
+            "node": "Call '04 - Context Builder'",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "HcnfSwqswl0gRWmh",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "02a89fa7-c20b-43e5-8954-d8c679de0dfc",
+  "id": "WORKFLOW_ID_ATTACHMENT_PROCESSOR",
+  "tags": []
+}
